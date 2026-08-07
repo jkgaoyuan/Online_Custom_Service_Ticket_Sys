@@ -57,3 +57,5 @@ export const useAuthStore = defineStore('auth', () => {
     initAuth,
   }
 })
+
+export { useTicketsStore } from './tickets'

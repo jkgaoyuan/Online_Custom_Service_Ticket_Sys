@@ -1,10 +1,14 @@
 <template>
   <el-container class="layout-container">
     <el-aside width="200px">
-      <el-menu default-active="1">
-        <el-menu-item index="1">
+      <el-menu default-active="1" router>
+        <el-menu-item index="/agent/workbench">
+          <el-icon><Monitor /></el-icon>
+          <span>工作台</span>
+        </el-menu-item>
+        <el-menu-item index="/agent/tickets">
           <el-icon><Tickets /></el-icon>
-          <span>工单工作台</span>
+          <span>工单列表</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

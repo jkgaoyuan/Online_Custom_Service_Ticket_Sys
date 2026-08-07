@@ -20,9 +20,19 @@ const routes = [
     meta: { requiresAuth: true, role: 'customer' },
     children: [
       {
-        path: 'dashboard',
-        name: 'CustomerDashboard',
-        component: () => import('@/views/customer/DashboardView.vue'),
+        path: 'tickets/new',
+        name: 'CreateTicket',
+        component: () => import('@/views/customer/CreateTicketView.vue'),
+      },
+      {
+        path: 'tickets',
+        name: 'MyTickets',
+        component: () => import('@/views/customer/MyTicketsView.vue'),
+      },
+      {
+        path: 'tickets/:id',
+        name: 'CustomerTicketDetail',
+        component: () => import('@/views/customer/TicketDetailView.vue'),
       },
     ],
   },
@@ -37,6 +47,16 @@ const routes = [
         path: 'workbench',
         name: 'AgentWorkbench',
         component: () => import('@/views/agent/WorkbenchView.vue'),
+      },
+      {
+        path: 'tickets',
+        name: 'AgentTickets',
+        component: () => import('@/views/agent/AgentTicketsView.vue'),
+      },
+      {
+        path: 'tickets/:id',
+        name: 'AgentTicketDetail',
+        component: () => import('@/views/agent/AgentTicketDetailView.vue'),
       },
     ],
   },
