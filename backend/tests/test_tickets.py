@@ -71,6 +71,11 @@ async def test_create_ticket_title_too_long_422(client, customer_auth_headers, d
         "/api/v1/tickets", headers=customer_auth_headers, json=body
     )
     assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert any(
+        err["loc"] == ["body", "title"] and "String should have at most 200 characters" in err["msg"]
+        for err in detail
+    )
 
 
 # API-TICKET-005: 查询不存在工单 404
