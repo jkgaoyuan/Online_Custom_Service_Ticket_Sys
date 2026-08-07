@@ -6,6 +6,7 @@ from app.services.category_service import (
     get_category_by_id,
     update_category,
 )
+from app.services.reply_service import create_reply, get_replies_by_ticket
 from app.services.ticket_service import (
     create_ticket,
     generate_ticket_no,

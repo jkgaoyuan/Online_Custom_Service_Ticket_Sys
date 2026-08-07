@@ -38,3 +38,4 @@ class Ticket(Base):
     category: Mapped["Category"] = relationship("Category")
     requester: Mapped["User"] = relationship("User", foreign_keys=[requester_id])
     assignee: Mapped["User"] = relationship("User", foreign_keys=[assignee_id])
+    replies: Mapped[list["TicketReply"]] = relationship("TicketReply", back_populates="ticket", cascade="all, delete-orphan")

@@ -7,12 +7,14 @@ from app.exceptions import NotFoundException, PermissionDeniedException
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
+from app.schemas.ticket_reply import ReplyCreate, ReplyResponse
 from app.services.ticket_service import (
     create_ticket,
     get_ticket_by_id,
     get_tickets_query,
     update_ticket,
 )
+from app.services.reply_service import create_reply, get_replies_by_ticket
 
 router = APIRouter()
 
@@ -76,3 +78,36 @@ async def get_ticket(
         raise NotFoundException("工单不存在")
     await check_ticket_access(ticket, current_user)
     return ticket
+
+
+@router.post("/tickets/{ticket_id}/replies", response_model=ReplyResponse, status_code=status.HTTP_201_CREATED)
+async def reply_ticket(
+    ticket_id: int,
+    data: ReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    # Agent/Supervisor/Admin replying to open ticket auto-claims it
+    if current_user.role in ("agent", "supervisor", "admin") and ticket.status == "open":
+        ticket.status = "in_progress"
+        ticket.assignee_id = current_user.id
+    reply = await create_reply(db, ticket, data, current_user.id)
+    return reply
+
+
+@router.get("/tickets/{ticket_id}/replies", response_model=list[ReplyResponse])
+async def list_replies(
+    ticket_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    include_internal = current_user.role in ("agent", "supervisor", "admin")
+    return await get_replies_by_ticket(db, ticket_id, include_internal)
