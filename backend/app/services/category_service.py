@@ -1,6 +1,8 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DuplicateException
 from app.models.category import Category
 from app.schemas.category import CategoryCreate, CategoryUpdate
 
@@ -8,7 +10,11 @@ from app.schemas.category import CategoryCreate, CategoryUpdate
 async def create_category(db: AsyncSession, data: CategoryCreate) -> Category:
     category = Category(**data.model_dump())
     db.add(category)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise DuplicateException("分类编码已存在")
     await db.refresh(category)
     return category
 
@@ -28,7 +34,11 @@ async def update_category(
 ) -> Category:
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(category, field, value)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise DuplicateException("分类编码已存在")
     await db.refresh(category)
     return category
 

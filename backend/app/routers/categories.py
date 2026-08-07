@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
+from app.exceptions import NotFoundException
 from app.models.user import User
 from app.schemas.category import CategoryCreate, CategoryUpdate, CategoryResponse
 from app.services.category_service import (
@@ -46,7 +47,7 @@ async def update_category_endpoint(
 ):
     category = await get_category_by_id(db, category_id)
     if not category:
-        raise HTTPException(status_code=404, detail="分类不存在")
+        raise NotFoundException("分类不存在")
     return await update_category(db, category, data)
 
 
@@ -58,5 +59,5 @@ async def delete_category_endpoint(
 ):
     category = await get_category_by_id(db, category_id)
     if not category:
-        raise HTTPException(status_code=404, detail="分类不存在")
+        raise NotFoundException("分类不存在")
     await delete_category(db, category)
