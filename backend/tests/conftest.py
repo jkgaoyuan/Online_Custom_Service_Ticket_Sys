@@ -7,8 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, Base, engine
 from app.main import app
+from app.models.category import Category
+from app.models.ticket import Ticket
 from app.models.user import User
+from app.schemas.ticket import TicketCreate
 from app.services.auth_service import create_access_token
+from app.services.ticket_service import create_ticket
 from app.utils.security import get_password_hash
 
 
@@ -105,3 +109,65 @@ async def agent_auth_headers(db):
 @pytest.fixture
 async def customer_auth_headers(db):
     return await _auth_headers(db, "customer_test", "customer")
+
+
+async def _create_category(db):
+    category = Category(name="故障", code="bug", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+    return category
+
+
+async def _create_ticket(db, title, description, category_id, requester_id, status="open", priority="P2", assignee_id=None):
+    data = TicketCreate(
+        title=title,
+        description=description,
+        category_id=category_id,
+        priority=priority,
+        source="web",
+        assignee_id=assignee_id,
+    )
+    ticket = await create_ticket(db, data, requester_id)
+    if status != "open":
+        ticket.status = status
+        await db.commit()
+        await db.refresh(ticket)
+    return ticket
+
+
+@pytest.fixture
+async def another_customer_ticket(db):
+    another_customer = await _create_user(db, "another_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db, "Another ticket", "Desc", category.id, another_customer.id
+    )
+    return ticket
+
+
+@pytest.fixture
+async def open_ticket(db):
+    some_customer = await _create_user(db, "some_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db, "Open ticket", "Desc", category.id, some_customer.id, status="open"
+    )
+    return ticket
+
+
+@pytest.fixture
+async def closed_ticket_assigned_to_other(db):
+    another_agent = await _create_user(db, "another_agent", "agent")
+    some_customer = await _create_user(db, "some_customer2", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db,
+        "Closed ticket",
+        "Desc",
+        category.id,
+        some_customer.id,
+        status="closed",
+        assignee_id=another_agent.id,
+    )
+    return ticket

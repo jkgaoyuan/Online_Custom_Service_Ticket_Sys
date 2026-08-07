@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.exceptions import NotFoundException
+from app.exceptions import NotFoundException, PermissionDeniedException
+from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
 from app.services.ticket_service import (
@@ -14,6 +15,17 @@ from app.services.ticket_service import (
 )
 
 router = APIRouter()
+
+
+async def check_ticket_access(ticket: Ticket, current_user: User) -> None:
+    if current_user.role == "customer" and ticket.requester_id != current_user.id:
+        raise PermissionDeniedException("无权访问该工单")
+    if (
+        current_user.role == "agent"
+        and ticket.assignee_id != current_user.id
+        and ticket.status != "open"
+    ):
+        raise PermissionDeniedException("无权访问该工单")
 
 
 @router.post(
@@ -62,5 +74,5 @@ async def get_ticket(
     ticket = await get_ticket_by_id(db, ticket_id)
     if not ticket:
         raise NotFoundException("工单不存在")
-    # TODO: data scope check in Task 3
+    await check_ticket_access(ticket, current_user)
     return ticket

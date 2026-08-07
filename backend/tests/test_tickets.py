@@ -83,3 +83,38 @@ async def test_get_ticket_not_found_404(client, customer_auth_headers, db):
     r = await client.get("/api/v1/tickets/99999", headers=customer_auth_headers)
     assert r.status_code == 404
     assert r.json()["detail"] == "工单不存在"
+
+
+# API-TICKET-006: 客户越权查看他人工单 403
+async def test_customer_access_other_ticket_403(
+    client, customer_auth_headers, another_customer_ticket, db
+):
+    r = await client.get(
+        f"/api/v1/tickets/{another_customer_ticket.id}",
+        headers=customer_auth_headers,
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "无权访问该工单"
+
+
+# API-TICKET-007: 客服可查看 open 工单
+async def test_agent_view_open_ticket(client, agent_auth_headers, open_ticket, db):
+    r = await client.get(
+        f"/api/v1/tickets/{open_ticket.id}", headers=agent_auth_headers
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == open_ticket.id
+    assert data["status"] == "open"
+
+
+# API-TICKET-008: 客服不可查看非分配 closed 工单
+async def test_agent_view_closed_ticket_forbidden_403(
+    client, agent_auth_headers, closed_ticket_assigned_to_other, db
+):
+    r = await client.get(
+        f"/api/v1/tickets/{closed_ticket_assigned_to_other.id}",
+        headers=agent_auth_headers,
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "无权访问该工单"
