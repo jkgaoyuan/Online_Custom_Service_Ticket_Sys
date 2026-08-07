@@ -41,3 +41,11 @@ class TicketResponse(BaseModel):
     closed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+
+
+class AssignRequest(BaseModel):
+    assignee_id: int

@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DuplicateException
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketUpdate
@@ -90,3 +91,29 @@ async def get_tickets_query(
     result = await db.execute(query)
     items = result.scalars().all()
     return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+VALID_TRANSITIONS = {
+    "open": {"in_progress", "closed"},
+    "in_progress": {"waiting", "resolved", "open"},
+    "waiting": {"in_progress", "resolved"},
+    "resolved": {"closed", "in_progress"},
+    "closed": set(),
+}
+
+
+def can_transition(current: str, target: str) -> bool:
+    return target in VALID_TRANSITIONS.get(current, set())
+
+
+async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_status: str) -> Ticket:
+    if not can_transition(ticket.status, target_status):
+        raise DuplicateException(f"无法从 {ticket.status} 流转到 {target_status}")
+    ticket.status = target_status
+    if target_status == "resolved":
+        ticket.resolved_at = datetime.utcnow()
+    if target_status == "closed":
+        ticket.closed_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
