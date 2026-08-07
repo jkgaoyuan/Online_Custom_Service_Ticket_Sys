@@ -1,11 +1,18 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
-from app.routers import auth
+from app.exceptions import (
+    DuplicateException,
+    NotFoundException,
+    PermissionDeniedException,
+    TicketSystemException,
+)
+from app.routers import auth, categories
 
 settings = get_settings()
 
@@ -31,6 +38,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(TicketSystemException)
+async def ticket_system_exception_handler(request: Request, exc: TicketSystemException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -42,6 +55,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
 
 
 @app.get("/health")
