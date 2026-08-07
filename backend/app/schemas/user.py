@@ -1,0 +1,55 @@
+from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
+
+from app.utils.security import check_password_strength
+
+
+class UserBase(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    email: EmailStr
+
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(default="customer", pattern=r"^(customer|agent|supervisor|admin)$")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not check_password_strength(v):
+            raise ValueError("密码长度至少 8 位，且需包含大写字母、小写字母、数字、特殊字符中的至少 2 种")
+        return v
+
+
+class UserCreateInternal(UserBase):
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(..., pattern=r"^(agent|supervisor|admin)$")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not check_password_strength(v):
+            raise ValueError("密码长度至少 8 位，且需包含大写字母、小写字母、数字、特殊字符中的至少 2 种")
+        return v
+
+
+class UserResponse(UserBase):
+    id: int
+    role: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse

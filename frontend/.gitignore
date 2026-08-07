@@ -1,0 +1,13 @@
+# Node
+node_modules/
+dist/
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+.env.local
