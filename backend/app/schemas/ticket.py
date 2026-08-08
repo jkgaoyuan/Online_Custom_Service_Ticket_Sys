@@ -14,6 +14,7 @@ class TicketBase(BaseModel):
 
 class TicketCreate(TicketBase):
     assignee_id: Optional[int] = None
+    auto_dispatch: bool = False
 
 
 class TicketUpdate(BaseModel):

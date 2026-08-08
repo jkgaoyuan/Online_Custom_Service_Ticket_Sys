@@ -22,7 +22,7 @@ from app.services.ticket_service import (
     update_ticket,
 )
 from app.services.reply_service import create_reply, get_replies_by_ticket
-from app.services.dispatch_service import log_manual_assign
+from app.services.dispatch_service import auto_assign, log_manual_assign
 
 router = APIRouter()
 
@@ -47,6 +47,10 @@ async def create_ticket_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     ticket = await create_ticket(db, data, current_user.id)
+    if data.auto_dispatch and ticket.assignee_id is None:
+        await auto_assign(db, ticket)
+        await db.commit()
+        await db.refresh(ticket)
     return ticket
 
 

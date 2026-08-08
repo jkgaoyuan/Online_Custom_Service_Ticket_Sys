@@ -1,5 +1,6 @@
 from sqlalchemy import select
 
+from app.models.agent_skill import AgentSkill
 from app.models.category import Category
 from app.models.user import User
 from app.schemas.ticket import TicketCreate
@@ -225,3 +226,44 @@ async def test_resolved_at_set_on_transition(client, agent_auth_headers, open_ti
     data = r.json()
     assert data["status"] == "resolved"
     assert data["resolved_at"] is not None
+
+
+# ===== Task 4: Auto-dispatch trigger tests =====
+
+# API-TICKET-020: 创建工单开启自动分派成功
+async def test_create_ticket_auto_dispatch_success(client, customer_auth_headers, db):
+    agent = await _create_user(db, "auto_dispatch_agent", "agent")
+    category = await _create_category(db)
+    db.add(AgentSkill(agent_id=agent.id, category_id=category.id, proficiency=5))
+    await db.commit()
+    body = {"title": "auto", "description": "desc", "category_id": category.id, "auto_dispatch": True}
+    r = await client.post("/api/v1/tickets", headers=customer_auth_headers, json=body)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["assignee_id"] == agent.id
+    assert data["status"] == "in_progress"
+
+
+# API-TICKET-021: 创建工单自动分派无候选保持 open
+async def test_create_ticket_auto_dispatch_no_agent(client, customer_auth_headers, db):
+    category = await _create_category(db)
+    body = {"title": "auto no agent", "description": "desc", "category_id": category.id, "auto_dispatch": True}
+    r = await client.post("/api/v1/tickets", headers=customer_auth_headers, json=body)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["assignee_id"] is None
+    assert data["status"] == "open"
+
+
+# API-TICKET-022: 创建工单指定 assignee_id 优先于 auto_dispatch
+async def test_create_ticket_assignee_overrides_auto_dispatch(client, customer_auth_headers, db):
+    agent = await _create_user(db, "override_agent", "agent")
+    another_agent = await _create_user(db, "override_agent2", "agent")
+    category = await _create_category(db)
+    db.add(AgentSkill(agent_id=another_agent.id, category_id=category.id, proficiency=5))
+    await db.commit()
+    body = {"title": "override", "description": "desc", "category_id": category.id, "assignee_id": agent.id, "auto_dispatch": True}
+    r = await client.post("/api/v1/tickets", headers=customer_auth_headers, json=body)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["assignee_id"] == agent.id
