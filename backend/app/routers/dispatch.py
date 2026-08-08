@@ -3,10 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_role
+from app.dependencies import require_role
 from app.exceptions import NotFoundException
 from app.models.dispatch_log import DispatchLog
-from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.agent_skill import (
     AgentSkillCreate,
