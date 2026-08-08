@@ -199,7 +199,7 @@ async def test_auto_assign_creates_log(db):
     assert log.agent_id == agent.id
 
 
-# API-DISPATCH-117: log_manual_assign 写入 manual 类型日志并内部提交
+# API-DISPATCH-117: log_manual_assign 写入 manual 类型日志
 async def test_log_manual_assign_creates_log(db):
     agent = await _create_user(db, "manual_agent1", "agent")
     customer = await _create_user(db, "manual_cust1", "customer")
@@ -207,10 +207,11 @@ async def test_log_manual_assign_creates_log(db):
     ticket = await _create_ticket(db, "manual", "desc", category.id, customer.id)
     await db.commit()
     log = await log_manual_assign(db, ticket.id, agent.id, "人工分派测试")
+    await db.commit()
     assert log.dispatch_type == "manual"
     assert log.agent_id == agent.id
     assert log.ticket_id == ticket.id
-    # 验证内部 commit 后 DB 可查
+    # 验证 commit 后 DB 可查
     result = await db.execute(select(DispatchLog).where(DispatchLog.id == log.id))
     db_log = result.scalar_one_or_none()
     assert db_log is not None

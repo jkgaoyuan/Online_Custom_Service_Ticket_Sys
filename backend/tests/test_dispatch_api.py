@@ -190,3 +190,127 @@ async def test_create_agent_skill_proficiency_too_low_422(
         "/api/v1/admin/agent-skills", headers=admin_auth_headers, json=body
     )
     assert r.status_code == 422
+
+
+# ===== P0 正向 =====
+
+# API-DISPATCH-014: suggest-assignees 成功
+async def test_suggest_assignees_api_success(client, supervisor_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    agent = await _create_user(db, "sugg_api_agent", "agent")
+    customer = await _create_user(db, "sugg_api_cust", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "sugg api", "desc", category.id, customer.id)
+    r = await client.post(
+        f"/api/v1/tickets/{ticket.id}/suggest-assignees", headers=supervisor_auth_headers
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) >= 1
+    assert data[0]["agent_id"] == agent.id
+
+
+# API-DISPATCH-015: suggest-assignees 404
+async def test_suggest_assignees_not_found_404(client, supervisor_auth_headers, db):
+    r = await client.post(
+        "/api/v1/tickets/99999/suggest-assignees", headers=supervisor_auth_headers
+    )
+    assert r.status_code == 404
+
+
+# API-DISPATCH-016: suggest-assignees 客户无权 403
+async def test_suggest_assignees_forbidden_403(client, customer_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    customer = await _create_user(db, "sugg_api_cust2", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "sugg api", "desc", category.id, customer.id)
+    r = await client.post(
+        f"/api/v1/tickets/{ticket.id}/suggest-assignees", headers=customer_auth_headers
+    )
+    assert r.status_code == 403
+
+
+# API-DISPATCH-017: auto-assign 成功
+async def test_auto_assign_api_success(client, supervisor_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    agent = await _create_user(db, "auto_api_agent", "agent")
+    customer = await _create_user(db, "auto_api_cust", "customer")
+    category = await _create_category(db)
+    from app.models.agent_skill import AgentSkill
+
+    db.add(AgentSkill(agent_id=agent.id, category_id=category.id, proficiency=5))
+    await db.commit()
+    ticket = await _create_ticket(db, "auto api", "desc", category.id, customer.id)
+    r = await client.post(
+        f"/api/v1/tickets/{ticket.id}/auto-assign", headers=supervisor_auth_headers
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["assigned"] is True
+    assert data["agent_id"] == agent.id
+
+
+# API-DISPATCH-018: auto-assign 无候选返回未分配
+async def test_auto_assign_api_no_candidate(client, supervisor_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    customer = await _create_user(db, "auto_api_cust2", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "auto api", "desc", category.id, customer.id)
+    r = await client.post(
+        f"/api/v1/tickets/{ticket.id}/auto-assign", headers=supervisor_auth_headers
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["assigned"] is False
+
+
+# API-DISPATCH-019: admin 查询 dispatch logs
+async def test_list_dispatch_logs_success(client, admin_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    agent = await _create_user(db, "log_agent", "agent")
+    customer = await _create_user(db, "log_cust", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db,
+        "log",
+        "desc",
+        category.id,
+        customer.id,
+        assignee_id=agent.id,
+        status="in_progress",
+    )
+    from app.services.dispatch_service import log_manual_assign
+
+    await log_manual_assign(db, ticket.id, agent.id, "test")
+    await db.commit()
+    r = await client.get("/api/v1/admin/dispatch-logs", headers=admin_auth_headers)
+    assert r.status_code == 200
+    assert len(r.json()) >= 1
+
+
+# API-DISPATCH-020: assign endpoint 记录 manual log
+async def test_manual_assign_creates_log(client, supervisor_auth_headers, db):
+    from tests.conftest import _create_user, _create_category, _create_ticket
+
+    agent = await _create_user(db, "manual_agent", "agent")
+    customer = await _create_user(db, "manual_cust", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "manual", "desc", category.id, customer.id)
+    r = await client.post(
+        f"/api/v1/tickets/{ticket.id}/assign",
+        headers=supervisor_auth_headers,
+        json={"assignee_id": agent.id},
+    )
+    assert r.status_code == 200
+    from app.models.dispatch_log import DispatchLog
+    from sqlalchemy import select
+
+    result = await db.execute(select(DispatchLog).where(DispatchLog.ticket_id == ticket.id))
+    log = result.scalar_one_or_none()
+    assert log is not None
+    assert log.dispatch_type == "manual"

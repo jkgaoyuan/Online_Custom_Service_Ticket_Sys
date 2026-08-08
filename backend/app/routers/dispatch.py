@@ -1,14 +1,19 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import get_current_user, require_role
 from app.exceptions import NotFoundException
+from app.models.dispatch_log import DispatchLog
+from app.models.ticket import Ticket
+from app.models.user import User
 from app.schemas.agent_skill import (
     AgentSkillCreate,
     AgentSkillResponse,
     AgentSkillUpdate,
 )
+from app.schemas.dispatch import AssignSuggestion, DispatchLogResponse
 from app.services.agent_skill_service import (
     create_agent_skill,
     delete_agent_skill,
@@ -17,6 +22,9 @@ from app.services.agent_skill_service import (
     get_all_agent_skills,
     update_agent_skill,
 )
+from app.services.dispatch_service import suggest_assignees, auto_assign
+from app.services.ticket_service import get_ticket_by_id
+from app.routers.tickets import check_ticket_access
 
 router = APIRouter()
 
@@ -70,3 +78,50 @@ async def admin_delete_skill(
     if not skill:
         raise NotFoundException("技能记录不存在")
     await delete_agent_skill(db, skill)
+
+
+@router.post("/tickets/{ticket_id}/suggest-assignees", response_model=list[AssignSuggestion])
+async def suggest_assignees_endpoint(
+    ticket_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("agent", "supervisor", "admin")),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    return await suggest_assignees(db, ticket, top_n=5)
+
+
+@router.post("/tickets/{ticket_id}/auto-assign", response_model=dict)
+async def auto_assign_endpoint(
+    ticket_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("supervisor", "admin")),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    agent = await auto_assign(db, ticket)
+    await db.commit()
+    await db.refresh(ticket)
+    if agent is None:
+        return {"assigned": False, "message": "无合适客服可自动分配"}
+    return {"assigned": True, "agent_id": agent.id, "agent_name": agent.username}
+
+
+@router.get("/admin/dispatch-logs", response_model=list[DispatchLogResponse])
+async def list_dispatch_logs(
+    ticket_id: int | None = None,
+    agent_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("supervisor", "admin")),
+):
+    query = select(DispatchLog).order_by(DispatchLog.created_at.desc())
+    if ticket_id:
+        query = query.where(DispatchLog.ticket_id == ticket_id)
+    if agent_id:
+        query = query.where(DispatchLog.agent_id == agent_id)
+    result = await db.execute(query)
+    return result.scalars().all()

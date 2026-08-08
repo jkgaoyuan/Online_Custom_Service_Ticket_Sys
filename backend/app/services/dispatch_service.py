@@ -125,7 +125,7 @@ async def auto_assign(db: AsyncSession, ticket: Ticket) -> User | None:
 async def log_manual_assign(db: AsyncSession, ticket_id: int, agent_id: int, reason: str) -> DispatchLog:
     """记录人工分派日志。
 
-    Commits internally. Do not call db.commit() after this function.
+    Does NOT commit. Caller must commit the session.
     """
     log = DispatchLog(
         ticket_id=ticket_id,
@@ -134,6 +134,4 @@ async def log_manual_assign(db: AsyncSession, ticket_id: int, agent_id: int, rea
         reason=reason,
     )
     db.add(log)
-    await db.commit()
-    await db.refresh(log)
     return log

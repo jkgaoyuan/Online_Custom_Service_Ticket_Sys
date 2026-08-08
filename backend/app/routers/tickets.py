@@ -22,6 +22,7 @@ from app.services.ticket_service import (
     update_ticket,
 )
 from app.services.reply_service import create_reply, get_replies_by_ticket
+from app.services.dispatch_service import log_manual_assign
 
 router = APIRouter()
 
@@ -151,6 +152,8 @@ async def assign_ticket(
     ticket.assignee_id = req.assignee_id
     if ticket.status == "open":
         ticket.status = "in_progress"
+    # 记录手动分派日志
+    await log_manual_assign(db, ticket.id, req.assignee_id, f"手动分派 by user {current_user.id}")
     await db.commit()
     await db.refresh(ticket)
     return ticket
