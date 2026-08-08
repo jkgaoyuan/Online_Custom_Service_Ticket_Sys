@@ -10,11 +10,10 @@ from app.models.category import Category
 # 权重常量（可配置，先硬编码 MVP）
 WEIGHT_LOAD = -2.0        # 每多一个 in_progress 工单减 2 分
 WEIGHT_SKILL = 5.0      # 有技能且 proficiency 匹配加 5 * proficiency 分
-WEIGHT_PRIORITY = 3.0     # 高优先级工单加 3 分权重（影响阈值但不直接加给 agent）
 MAX_LOAD = 10             # 超过 10 个处理中工单直接排除
 
 
-def _score_agent(agent_id: int, proficiency: int | None, current_load: int, ticket_priority: str) -> float:
+def _score_agent(agent_id: int, proficiency: int | None, current_load: int) -> float:
     """计算单个 agent 对某工单的得分。"""
     score = 0.0
     # 负载负向评分
@@ -74,7 +73,7 @@ async def suggest_assignees(db: AsyncSession, ticket: Ticket, top_n: int = 5) ->
         if load >= MAX_LOAD:
             continue
         proficiency = skills_map.get(agent.id)
-        score = _score_agent(agent.id, proficiency, load, ticket.priority)
+        score = _score_agent(agent.id, proficiency, load)
         reason_parts = []
         if proficiency:
             reason_parts.append(f"技能匹配度 {proficiency}/5")
@@ -95,7 +94,10 @@ async def suggest_assignees(db: AsyncSession, ticket: Ticket, top_n: int = 5) ->
 
 
 async def auto_assign(db: AsyncSession, ticket: Ticket) -> User | None:
-    """自动分配最佳客服，返回 agent 或 None。同时写入 DispatchLog。"""
+    """自动分配最佳客服，返回 agent 或 None。同时写入 DispatchLog。
+
+    Does NOT commit. Caller must commit the session.
+    """
     candidates = await suggest_assignees(db, ticket, top_n=1)
     if not candidates:
         return None
@@ -121,6 +123,10 @@ async def auto_assign(db: AsyncSession, ticket: Ticket) -> User | None:
 
 
 async def log_manual_assign(db: AsyncSession, ticket_id: int, agent_id: int, reason: str) -> DispatchLog:
+    """记录人工分派日志。
+
+    Commits internally. Do not call db.commit() after this function.
+    """
     log = DispatchLog(
         ticket_id=ticket_id,
         agent_id=agent_id,

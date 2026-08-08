@@ -10,6 +10,7 @@ from app.services.dispatch_service import (
     _score_agent,
     suggest_assignees,
     auto_assign,
+    log_manual_assign,
     _get_agent_loads,
     WEIGHT_LOAD,
     WEIGHT_SKILL,
@@ -22,25 +23,25 @@ from tests.conftest import _create_user, _create_category, _create_ticket
 
 # API-DISPATCH-101: 无技能负载 0 得分
 async def test_score_agent_no_skill_zero_load(db):
-    score = _score_agent(1, None, 0, "P2")
+    score = _score_agent(1, None, 0)
     assert score == 0.0
 
 
 # API-DISPATCH-102: 负载 1 无技能扣分
 async def test_score_agent_load_penalty(db):
-    score = _score_agent(1, None, 1, "P2")
+    score = _score_agent(1, None, 1)
     assert score == WEIGHT_LOAD * 1
 
 
 # API-DISPATCH-103: 技能 proficiency 5 满分加成
 async def test_score_agent_max_skill(db):
-    score = _score_agent(1, 5, 0, "P2")
+    score = _score_agent(1, 5, 0)
     assert score == WEIGHT_SKILL * 5
 
 
 # API-DISPATCH-104: 技能与负载综合评分
 async def test_score_agent_combined(db):
-    score = _score_agent(1, 3, 2, "P2")
+    score = _score_agent(1, 3, 2)
     expected = WEIGHT_SKILL * 3 + WEIGHT_LOAD * 2
     assert score == expected
 
@@ -113,18 +114,20 @@ async def test_suggest_skill_priority(db):
     assert candidates[0]["score"] > candidates[1]["score"]
 
 
-# API-DISPATCH-111: 高负载 agent 被排除（超过 MAX_LOAD）
+# API-DISPATCH-111: 高负载 agent 被排除（超过 MAX_LOAD），非过载 agent 仍返回
 async def test_suggest_excludes_overloaded(db):
-    agent = await _create_user(db, "sugg_agent_over", "agent")
+    agent_over = await _create_user(db, "sugg_agent_over", "agent")
+    agent_free = await _create_user(db, "sugg_agent_free", "agent")
     customer = await _create_user(db, "sugg_cust4", "customer")
     category = await _create_category(db)
     for i in range(MAX_LOAD):
         await _create_ticket(
-            db, f"over {i}", "desc", category.id, customer.id, assignee_id=agent.id, status="in_progress"
+            db, f"over {i}", "desc", category.id, customer.id, assignee_id=agent_over.id, status="in_progress"
         )
     ticket = await _create_ticket(db, "sugg", "desc", category.id, customer.id)
     candidates = await suggest_assignees(db, ticket)
-    assert all(c["agent_id"] != agent.id for c in candidates)
+    assert len(candidates) == 1
+    assert candidates[0]["agent_id"] == agent_free.id
 
 
 # API-DISPATCH-112: top_n 限制返回数量
@@ -194,3 +197,36 @@ async def test_auto_assign_creates_log(db):
     assert log is not None
     assert log.dispatch_type == "auto"
     assert log.agent_id == agent.id
+
+
+# API-DISPATCH-117: log_manual_assign 写入 manual 类型日志并内部提交
+async def test_log_manual_assign_creates_log(db):
+    agent = await _create_user(db, "manual_agent1", "agent")
+    customer = await _create_user(db, "manual_cust1", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "manual", "desc", category.id, customer.id)
+    await db.commit()
+    log = await log_manual_assign(db, ticket.id, agent.id, "人工分派测试")
+    assert log.dispatch_type == "manual"
+    assert log.agent_id == agent.id
+    assert log.ticket_id == ticket.id
+    # 验证内部 commit 后 DB 可查
+    result = await db.execute(select(DispatchLog).where(DispatchLog.id == log.id))
+    db_log = result.scalar_one_or_none()
+    assert db_log is not None
+    assert db_log.dispatch_type == "manual"
+
+
+# API-DISPATCH-118: 相同负载且无技能时排序稳定（按 agent_id 升序）
+async def test_suggest_tie_breaking_deterministic(db):
+    agent_a = await _create_user(db, "sugg_agent_a", "agent")
+    agent_b = await _create_user(db, "sugg_agent_b", "agent")
+    customer = await _create_user(db, "sugg_cust6", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "sugg", "desc", category.id, customer.id)
+    candidates = await suggest_assignees(db, ticket)
+    assert len(candidates) == 2
+    # 稳定排序：score 相同则保持 DB 查询顺序（即 agent_id 升序）
+    assert candidates[0]["agent_id"] < candidates[1]["agent_id"]
+    assert candidates[0]["score"] == 0.0
+    assert candidates[1]["score"] == 0.0
