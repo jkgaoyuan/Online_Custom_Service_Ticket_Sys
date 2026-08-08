@@ -12,7 +12,7 @@ from app.exceptions import (
     PermissionDeniedException,
     TicketSystemException,
 )
-from app.routers import auth, categories, tickets
+from app.routers import auth, categories, dispatch, tickets
 
 settings = get_settings()
 
@@ -56,7 +56,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
-app.include_router(tickets.router, prefix="/api/v1", tags=["Tickets"])
+app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
 
 
 @app.get("/health")

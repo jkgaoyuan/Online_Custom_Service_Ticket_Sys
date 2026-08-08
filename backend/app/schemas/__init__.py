@@ -1,3 +1,4 @@
+from app.schemas.agent_skill import AgentSkillCreate, AgentSkillResponse, AgentSkillUpdate
 from app.schemas.category import CategoryCreate, CategoryResponse, CategoryUpdate
 from app.schemas.ticket import (
     AssignRequest,
