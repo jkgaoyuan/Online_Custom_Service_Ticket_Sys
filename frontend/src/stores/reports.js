@@ -2,12 +2,19 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { reportApi } from '@/api/reports'
 
+const formatDate = (d) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export const useReportsStore = defineStore('reports', () => {
   const today = new Date()
   const sevenDaysAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)
   const dateRange = ref([
-    sevenDaysAgo.toISOString().split('T')[0],
-    today.toISOString().split('T')[0],
+    formatDate(sevenDaysAgo),
+    formatDate(today),
   ])
 
   const activeTab = ref('overview')
@@ -23,39 +30,44 @@ export const useReportsStore = defineStore('reports', () => {
   const exporting = ref(false)
 
   const fetchCurrentTab = async () => {
-    const tab = activeTab.value
+    const targetTab = activeTab.value
     loading.value = true
     try {
       const [start, end] = dateRange.value
       const params = { start_date: start, end_date: end }
 
-      if (tab === 'overview') {
+      if (targetTab === 'overview') {
         const { data } = await reportApi.overview()
-        if (activeTab.value !== 'overview') return
+        if (activeTab.value !== targetTab) return
         overview.value = data
-      } else if (tab === 'agent_performance') {
+      } else if (targetTab === 'agent_performance') {
         const { data } = await reportApi.agentPerformance(params)
-        if (activeTab.value !== 'agent_performance') return
+        if (activeTab.value !== targetTab) return
         agentPerformance.value = data
-      } else if (tab === 'category_distribution') {
+      } else if (targetTab === 'category_distribution') {
         const { data } = await reportApi.categoryDistribution(params)
-        if (activeTab.value !== 'category_distribution') return
+        if (activeTab.value !== targetTab) return
         categoryDistribution.value = data
-      } else if (tab === 'trend') {
+      } else if (targetTab === 'trend') {
         const { data } = await reportApi.trend({ ...params, granularity: 'day' })
-        if (activeTab.value !== 'trend') return
+        if (activeTab.value !== targetTab) return
         trend.value = data
-      } else if (tab === 'satisfaction') {
+      } else if (targetTab === 'satisfaction') {
         const { data } = await reportApi.satisfaction(params)
-        if (activeTab.value !== 'satisfaction') return
+        if (activeTab.value !== targetTab) return
         satisfaction.value = data
       }
+    } catch (error) {
+      console.error('Failed to fetch report:', error)
     } finally {
-      loading.value = false
+      if (activeTab.value === targetTab) {
+        loading.value = false
+      }
     }
   }
 
   const submitExport = async (format) => {
+    if (exporting.value) return
     exporting.value = true
     try {
       const [start, end] = dateRange.value
@@ -72,6 +84,8 @@ export const useReportsStore = defineStore('reports', () => {
         downloadUrl: null,
       }
       return data.task_id
+    } catch (error) {
+      console.error('Failed to submit export:', error)
     } finally {
       exporting.value = false
     }
@@ -79,12 +93,10 @@ export const useReportsStore = defineStore('reports', () => {
 
   const pollExportStatus = async (taskId) => {
     const { data } = await reportApi.exportStatus(taskId)
-    if (data.status === 'completed') {
-      exportTask.value = {
-        taskId: data.task_id,
-        status: data.status,
-        downloadUrl: data.download_url,
-      }
+    exportTask.value = {
+      taskId: data.task_id,
+      status: data.status,
+      downloadUrl: data.download_url || null,
     }
     return data
   }
