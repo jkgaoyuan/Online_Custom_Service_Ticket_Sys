@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.email_ingestion import EmailIngestion
 from app.models.ticket_reply import TicketReply
 from app.models.user import User
+from app.services.mailer import Mailer
 from app.utils.security import get_password_hash
 
 
@@ -60,6 +61,13 @@ async def test_email_ingestion_message_id_unique(db):
     with pytest.raises(IntegrityError):
         await db.commit()
     await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_mailer_send_text_email_noop_when_unconfigured():
+    mailer = Mailer()
+    # When no SMTP_HOST or API provider, should be no-op (not crash)
+    await mailer.send_text_email("to@example.com", "Subject", "Body")
 
 
 async def test_ticket_reply_email_message_id(db, open_ticket):
