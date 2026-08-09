@@ -204,7 +204,17 @@ async def get_agent_performance(
 
     assigned_rows = {row[0]: row for row in assigned_result.all()}
 
-    # First response stats from ticket_replies (earliest non-internal reply per ticket)
+    # First response stats: earliest non-internal reply per ticket
+    earliest_reply_subq = (
+        select(
+            TicketReply.ticket_id,
+            func.min(TicketReply.created_at).label("first_reply_at"),
+        )
+        .where(TicketReply.is_internal.is_(False))
+        .group_by(TicketReply.ticket_id)
+        .subquery()
+    )
+
     first_reply_result = await db.execute(
         select(
             TicketReply.author_id,
@@ -212,10 +222,13 @@ async def get_agent_performance(
                 func.extract("epoch", TicketReply.created_at - Ticket.created_at) / 3600
             ),
         )
-        .select_from(TicketReply)
+        .join(
+            earliest_reply_subq,
+            (TicketReply.ticket_id == earliest_reply_subq.c.ticket_id)
+            & (TicketReply.created_at == earliest_reply_subq.c.first_reply_at),
+        )
         .join(Ticket, TicketReply.ticket_id == Ticket.id)
         .where(
-            TicketReply.is_internal.is_(False),
             Ticket.created_at >= start,
             Ticket.created_at <= end,
         )

@@ -7,7 +7,7 @@ from app.services.report_service import (
     get_satisfaction_stats,
     validate_date_range,
 )
-from tests.conftest import _create_category, _create_ticket, _create_user
+from tests.conftest import _create_category, _create_resolved_ticket, _create_ticket, _create_user
 
 
 # API-RPT-101: overview returns correct aggregated stats
@@ -29,27 +29,43 @@ async def test_overview_returns_correct_stats(db):
 
 # API-RPT-102: agent performance returns correct stats
 async def test_agent_performance_returns_correct_stats(db):
+    from app.models.ticket_reply import TicketReply
+
     customer = await _create_user(db, "perf_customer", "customer")
     agent = await _create_user(db, "perf_agent", "agent")
     category = await _create_category(db)
 
-    t1 = await _create_ticket(
-        db, "Perf1", "D1", category.id, customer.id, status="resolved", assignee_id=agent.id
+    base_time = datetime.utcnow() - timedelta(days=1)
+    t1 = await _create_resolved_ticket(
+        db, "Perf1", "D1", category.id, customer.id, assignee_id=agent.id
     )
-    t1.resolved_at = datetime.utcnow()
+    t1.created_at = base_time
+    t1.resolved_at = base_time + timedelta(hours=4)
+    await db.commit()
+    await db.refresh(t1)
+
+    reply = TicketReply(
+        ticket_id=t1.id,
+        author_id=agent.id,
+        content="First response",
+        is_internal=False,
+        created_at=base_time + timedelta(hours=2),
+    )
+    db.add(reply)
     await db.commit()
 
     start = (datetime.utcnow() - timedelta(days=30)).date().isoformat()
     end = datetime.utcnow().date().isoformat()
     result = await get_agent_performance(db, start, end)
-    assert len(result) >= 1
+
+    assert len(result) == 1
     item = result[0]
-    assert "agent_id" in item
-    assert "agent_name" in item
-    assert "total_assigned" in item
-    assert "resolved_count" in item
-    assert "avg_first_resp_hours" in item
-    assert "avg_resolution_hours" in item
+    assert item["agent_id"] == agent.id
+    assert item["agent_name"] == "perf_agent"
+    assert item["total_assigned"] == 1
+    assert item["resolved_count"] == 1
+    assert item["avg_first_resp_hours"] == 2.0
+    assert item["avg_resolution_hours"] == 4.0
 
 
 # API-RPT-103: category distribution returns correct stats

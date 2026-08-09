@@ -1,0 +1,438 @@
+diff --git a/backend/app/routers/tickets.py b/backend/app/routers/tickets.py
+index 35ce3a3..33d7744 100644
+--- a/backend/app/routers/tickets.py
++++ b/backend/app/routers/tickets.py
+@@ -100,21 +100,22 @@ async def reply_ticket(
+     current_user: User = Depends(get_current_user),
+ ):
+     ticket = await get_ticket_by_id(db, ticket_id)
+     if not ticket:
+         raise NotFoundException("工单不存在")
+     await check_ticket_access(ticket, current_user)
+     # Agent/Supervisor/Admin replying to open ticket auto-claims it
+     if current_user.role in ("agent", "supervisor", "admin") and ticket.status == "open":
+         ticket.status = "in_progress"
+         ticket.assignee_id = current_user.id
+-    reply = await create_reply(db, ticket, data, current_user.id)
++    is_agent_reply = current_user.role in ("agent", "supervisor", "admin") and not data.is_internal
++    reply = await create_reply(db, ticket, data, current_user.id, is_agent_reply=is_agent_reply)
+     return reply
+ 
+ 
+ @router.get("/tickets/{ticket_id}/replies", response_model=list[ReplyResponse])
+ async def list_replies(
+     ticket_id: int,
+     db: AsyncSession = Depends(get_db),
+     current_user: User = Depends(get_current_user),
+ ):
+     ticket = await get_ticket_by_id(db, ticket_id)
+diff --git a/backend/app/schemas/category.py b/backend/app/schemas/category.py
+index 6cd0fca..0d6f529 100644
+--- a/backend/app/schemas/category.py
++++ b/backend/app/schemas/category.py
+@@ -2,21 +2,26 @@ from typing import Optional
+ 
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ 
+ class CategoryBase(BaseModel):
+     name: str = Field(..., max_length=50)
+     code: str = Field(..., max_length=30)
+     description: Optional[str] = Field(None, max_length=255)
+     default_priority: str = Field(default="P2", pattern="^(P0|P1|P2|P3)$")
+     sla_config: dict = Field(
+-        default_factory=lambda: {"first_resp_hours": 4, "resolution_hours": 24}
++        default_factory=lambda: {
++            "P0": {"first_resp_hours": 1, "resolution_hours": 4},
++            "P1": {"first_resp_hours": 4, "resolution_hours": 24},
++            "P2": {"first_resp_hours": 8, "resolution_hours": 48},
++            "P3": {"first_resp_hours": 24, "resolution_hours": 72},
++        }
+     )
+     is_active: bool = True
+ 
+ 
+ class CategoryCreate(CategoryBase):
+     pass
+ 
+ 
+ class CategoryUpdate(BaseModel):
+     name: Optional[str] = Field(None, max_length=50)
+diff --git a/backend/app/services/reply_service.py b/backend/app/services/reply_service.py
+index e30bec5..ad0551f 100644
+--- a/backend/app/services/reply_service.py
++++ b/backend/app/services/reply_service.py
+@@ -1,19 +1,29 @@
++from datetime import datetime
++
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy import select
+ from app.models.ticket_reply import TicketReply
+ from app.schemas.ticket_reply import ReplyCreate
+ from app.models.ticket import Ticket
++from app.services.sla_service import get_sla_record_by_ticket_id
+ 
+-async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, author_id: int) -> TicketReply:
++async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, author_id: int, is_agent_reply: bool = False) -> TicketReply:
+     reply = TicketReply(ticket_id=ticket.id, author_id=author_id, content=data.content, is_internal=data.is_internal)
+     db.add(reply)
+     await db.commit()
+     await db.refresh(reply)
++
++    if is_agent_reply:
++        sla = await get_sla_record_by_ticket_id(db, ticket.id)
++        if sla and sla.first_resp_at is None:
++            sla.first_resp_at = datetime.utcnow()
++            await db.commit()
++
+     return reply
+ 
+ async def get_replies_by_ticket(db: AsyncSession, ticket_id: int, include_internal: bool = False) -> list[TicketReply]:
+     query = select(TicketReply).where(TicketReply.ticket_id == ticket_id).order_by(TicketReply.created_at.asc())
+     if not include_internal:
+         query = query.where(TicketReply.is_internal == False)
+     result = await db.execute(query)
+     return result.scalars().all()
+diff --git a/backend/app/services/sla_service.py b/backend/app/services/sla_service.py
+new file mode 100644
+index 0000000..5e8a8f2
+--- /dev/null
++++ b/backend/app/services/sla_service.py
+@@ -0,0 +1,51 @@
++from datetime import datetime, timedelta
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.category import Category
++from app.models.sla_record import SLARecord
++from app.models.ticket import Ticket
++
++DEFAULT_SLA = {
++    "P0": {"first_resp_hours": 1, "resolution_hours": 4},
++    "P1": {"first_resp_hours": 4, "resolution_hours": 24},
++    "P2": {"first_resp_hours": 8, "resolution_hours": 48},
++    "P3": {"first_resp_hours": 24, "resolution_hours": 72},
++}
++
++
++def _resolve_sla_config(category_sla_config: dict, priority: str) -> dict:
++    """从 category.sla_config 解析出指定优先级的 SLA 配置。兼容旧版 flat 格式。"""
++    sla_config = category_sla_config or {}
++    if "first_resp_hours" in sla_config and "P0" not in sla_config:
++        return {
++            "first_resp_hours": sla_config["first_resp_hours"],
++            "resolution_hours": sla_config["resolution_hours"],
++        }
++    return sla_config.get(priority, DEFAULT_SLA[priority])
++
++
++async def create_sla_record(db: AsyncSession, ticket: Ticket) -> SLARecord:
++    """在 create_ticket 内部调用，ticket 已 flush 有 id。不自行 commit。"""
++    cat_result = await db.execute(select(Category).where(Category.id == ticket.category_id))
++    category = cat_result.scalar_one()
++
++    priority_config = _resolve_sla_config(category.sla_config, ticket.priority)
++    now = datetime.utcnow()
++
++    record = SLARecord(
++        ticket_id=ticket.id,
++        priority=ticket.priority,
++        first_resp_hours=priority_config["first_resp_hours"],
++        resolution_hours=priority_config["resolution_hours"],
++        first_resp_due=now + timedelta(hours=priority_config["first_resp_hours"]),
++        resolution_due=now + timedelta(hours=priority_config["resolution_hours"]),
++    )
++    db.add(record)
++    return record
++
++
++async def get_sla_record_by_ticket_id(db: AsyncSession, ticket_id: int) -> SLARecord | None:
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket_id))
++    return result.scalar_one_or_none()
+diff --git a/backend/app/services/ticket_service.py b/backend/app/services/ticket_service.py
+index 415c3cf..28e2f25 100644
+--- a/backend/app/services/ticket_service.py
++++ b/backend/app/services/ticket_service.py
+@@ -1,19 +1,20 @@
+ from datetime import datetime
+ 
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.exceptions import DuplicateException
+ from app.models.ticket import Ticket
+ from app.models.user import User
+ from app.schemas.ticket import TicketCreate, TicketUpdate
++from app.services.sla_service import create_sla_record, get_sla_record_by_ticket_id
+ 
+ 
+ async def generate_ticket_no(db: AsyncSession) -> str:
+     today = datetime.utcnow().strftime("%Y%m%d")
+     prefix = f"TK-{today}-"
+     result = await db.execute(
+         select(func.count(Ticket.id)).where(Ticket.ticket_no.like(f"{prefix}%"))
+     )
+     count = result.scalar() + 1
+     return f"{prefix}{count:04d}"
+@@ -29,20 +30,24 @@ async def create_ticket(
+         description=data.description,
+         category_id=data.category_id,
+         priority=data.priority,
+         requester_id=requester_id,
+         assignee_id=data.assignee_id,
+         source=data.source,
+     )
+     db.add(ticket)
+     await db.commit()
+     await db.refresh(ticket)
++    # 创建 SLA 记录（ticket 已有 id）
++    await create_sla_record(db, ticket)
++    await db.commit()
++    await db.refresh(ticket)
+     return ticket
+ 
+ 
+ async def get_ticket_by_id(db: AsyncSession, ticket_id: int) -> Ticket | None:
+     result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+     return result.scalar_one_or_none()
+ 
+ 
+ async def update_ticket(
+     db: AsyncSession, ticket: Ticket, data: TicketUpdate
+@@ -102,18 +107,33 @@ VALID_TRANSITIONS = {
+ }
+ 
+ 
+ def can_transition(current: str, target: str) -> bool:
+     return target in VALID_TRANSITIONS.get(current, set())
+ 
+ 
+ async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_status: str) -> Ticket:
+     if not can_transition(ticket.status, target_status):
+         raise DuplicateException(f"无法从 {ticket.status} 流转到 {target_status}")
++
++    old_status = ticket.status
+     ticket.status = target_status
++
+     if target_status == "resolved":
+         ticket.resolved_at = datetime.utcnow()
++        sla = await get_sla_record_by_ticket_id(db, ticket.id)
++        if sla and sla.resolved_at is None:
++            sla.resolved_at = datetime.utcnow()
++
+     if target_status == "closed":
+         ticket.closed_at = datetime.utcnow()
++
++    # 重新打开：清空 resolved_at，让其继续受 resolution SLA 约束
++    if old_status == "resolved" and target_status == "in_progress":
++        ticket.resolved_at = None
++        sla = await get_sla_record_by_ticket_id(db, ticket.id)
++        if sla:
++            sla.resolved_at = None
++
+     await db.commit()
+     await db.refresh(ticket)
+     return ticket
+diff --git a/backend/tests/test_sla.py b/backend/tests/test_sla.py
+index edb3892..50ce691 100644
+--- a/backend/tests/test_sla.py
++++ b/backend/tests/test_sla.py
+@@ -1,28 +1,41 @@
+ import pytest
+ from datetime import datetime, timedelta
+ from sqlalchemy import select
+ 
+ from app.models.sla_record import SLARecord
+ from app.models.ticket import Ticket
+ from app.models.user import User
+ from app.models.category import Category
++from app.schemas.ticket_reply import ReplyCreate
++from app.services.reply_service import create_reply
++from app.services.ticket_service import transition_ticket_status
+ from tests.conftest import _create_user, _create_category, _create_ticket
+ 
+ 
+ # API-SLA-101: SLARecord model can be created and persisted
+ async def test_sla_record_model(db):
+     customer = await _create_user(db, "sla_customer", "customer")
+     category = await _create_category(db)
+-    ticket = await _create_ticket(
+-        db, "SLA ticket", "Need help", category.id, customer.id
++    # Create ticket directly to avoid auto-SLA creation from service layer
++    ticket = Ticket(
++        ticket_no="TK-101",
++        title="SLA ticket",
++        description="Need help",
++        category_id=category.id,
++        requester_id=customer.id,
++        priority="P2",
++        source="web",
+     )
++    db.add(ticket)
++    await db.commit()
++    await db.refresh(ticket)
+ 
+     now = datetime.utcnow()
+     sla = SLARecord(
+         ticket_id=ticket.id,
+         priority="P2",
+         first_resp_hours=4,
+         resolution_hours=24,
+         first_resp_due=now + timedelta(hours=4),
+         resolution_due=now + timedelta(hours=24),
+         first_resp_at=None,
+@@ -60,10 +73,153 @@ async def test_sla_record_model(db):
+ 
+     # Verify relationship to ticket
+     assert sla.ticket is not None
+     assert sla.ticket.id == ticket.id
+ 
+     # Verify we can query it back from DB
+     result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
+     db_sla = result.scalar_one_or_none()
+     assert db_sla is not None
+     assert db_sla.priority == "P2"
++
++
++# API-SLA-201: create_ticket auto-creates SLA using category nested config
++async def test_create_ticket_auto_creates_sla(db):
++    customer = await _create_user(db, "auto_sla_customer", "customer")
++    category = Category(
++        name="Network",
++        code="net",
++        sla_config={
++            "P0": {"first_resp_hours": 1, "resolution_hours": 4},
++            "P1": {"first_resp_hours": 4, "resolution_hours": 24},
++            "P2": {"first_resp_hours": 8, "resolution_hours": 48},
++            "P3": {"first_resp_hours": 24, "resolution_hours": 72},
++        },
++    )
++    db.add(category)
++    await db.commit()
++    await db.refresh(category)
++
++    ticket = await _create_ticket(
++        db, "Auto SLA", "Desc", category.id, customer.id, priority="P1"
++    )
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.priority == "P1"
++    assert sla.first_resp_hours == 4
++    assert sla.resolution_hours == 24
++    assert sla.first_resp_due is not None
++    assert sla.resolution_due is not None
++
++
++# API-SLA-202: empty category sla_config falls back to DEFAULT_SLA
++async def test_create_ticket_uses_default_sla_when_category_empty(db):
++    customer = await _create_user(db, "default_sla_customer", "customer")
++    category = Category(name="Empty", code="empty", sla_config={})
++    db.add(category)
++    await db.commit()
++    await db.refresh(category)
++
++    ticket = await _create_ticket(
++        db, "Default SLA", "Desc", category.id, customer.id, priority="P0"
++    )
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.first_resp_hours == 1
++    assert sla.resolution_hours == 4
++
++
++# API-SLA-203: old flat sla_config format is compatible
++async def test_create_ticket_compat_flat_sla_config(db):
++    customer = await _create_user(db, "compat_sla_customer", "customer")
++    category = Category(
++        name="Legacy",
++        code="legacy",
++        sla_config={"first_resp_hours": 2, "resolution_hours": 12},
++    )
++    db.add(category)
++    await db.commit()
++    await db.refresh(category)
++
++    ticket = await _create_ticket(
++        db, "Compat SLA", "Desc", category.id, customer.id, priority="P2"
++    )
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.first_resp_hours == 2
++    assert sla.resolution_hours == 12
++
++
++# API-SLA-204: agent non-internal reply sets first_resp_at
++async def test_agent_reply_sets_first_resp_at(db):
++    customer = await _create_user(db, "fr_customer", "customer")
++    agent = await _create_user(db, "fr_agent", "agent")
++    category = await _create_category(db)
++    ticket = await _create_ticket(db, "FR Ticket", "Desc", category.id, customer.id)
++
++    data = ReplyCreate(content="Agent reply", is_internal=False)
++    await create_reply(db, ticket, data, agent.id, is_agent_reply=True)
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.first_resp_at is not None
++
++
++# API-SLA-205: internal reply does not set first_resp_at
++async def test_internal_reply_does_not_set_first_resp_at(db):
++    customer = await _create_user(db, "int_customer", "customer")
++    agent = await _create_user(db, "int_agent", "agent")
++    category = await _create_category(db)
++    ticket = await _create_ticket(db, "INT Ticket", "Desc", category.id, customer.id)
++
++    data = ReplyCreate(content="Internal note", is_internal=True)
++    await create_reply(db, ticket, data, agent.id, is_agent_reply=False)
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.first_resp_at is None
++
++
++# API-SLA-206: transition to resolved sets resolved_at on ticket and SLA
++async def test_transition_to_resolved_sets_resolved_at(db):
++    customer = await _create_user(db, "res_customer", "customer")
++    category = await _create_category(db)
++    ticket = await _create_ticket(
++        db, "Res Ticket", "Desc", category.id, customer.id, status="in_progress"
++    )
++
++    ticket = await transition_ticket_status(db, ticket, "resolved")
++
++    assert ticket.resolved_at is not None
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.resolved_at is not None
++
++
++# API-SLA-207: reopen (resolved -> in_progress) clears resolved_at
++async def test_reopen_clears_resolved_at(db):
++    customer = await _create_user(db, "reopen_customer", "customer")
++    category = await _create_category(db)
++    ticket = await _create_ticket(
++        db, "Reopen Ticket", "Desc", category.id, customer.id, status="in_progress"
++    )
++
++    ticket = await transition_ticket_status(db, ticket, "resolved")
++    assert ticket.resolved_at is not None
++
++    ticket = await transition_ticket_status(db, ticket, "in_progress")
++    assert ticket.resolved_at is None
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
++    sla = result.scalar_one_or_none()
++    assert sla is not None
++    assert sla.resolved_at is None

@@ -1,0 +1,326 @@
+diff --git a/backend/app/main.py b/backend/app/main.py
+index ae7296e..1d01425 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -5,21 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.responses import JSONResponse
+ 
+ from app.config import get_settings
+ from app.database import AsyncSessionLocal
+ from app.exceptions import (
+     DuplicateException,
+     NotFoundException,
+     PermissionDeniedException,
+     TicketSystemException,
+ )
+-from app.routers import auth, categories, dispatch, tickets, webhooks
++from app.routers import auth, categories, dispatch, notifications, tickets, webhooks
+ 
+ settings = get_settings()
+ 
+ 
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     # 启动时创建默认管理员和邮件默认分类
+     from app.services.auth_service import create_default_admin
+     from app.services.email_service import ensure_default_email_category
+ 
+@@ -49,20 +49,21 @@ async def ticket_system_exception_handler(request: Request, exc: TicketSystemExc
+ # CORS
+ app.add_middleware(
+     CORSMiddleware,
+     allow_origins=[settings.FRONTEND_URL],
+     allow_credentials=True,
+     allow_methods=["*"],
+     allow_headers=["*"],
+ )
+ 
+ # Routers
++app.include_router(notifications.router, prefix="/api/v1", tags=["Notifications"])
+ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+ app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
+ app.include_router(tickets.router, prefix="/api/v1", tags=["Tickets"])
+ app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
+ app.include_router(webhooks.router, prefix="/api/v1", tags=["Webhooks"])
+ 
+ 
+ @app.get("/health")
+ async def health_check():
+     return {"status": "ok"}
+diff --git a/backend/app/routers/notifications.py b/backend/app/routers/notifications.py
+new file mode 100644
+index 0000000..32a5109
+--- /dev/null
++++ b/backend/app/routers/notifications.py
+@@ -0,0 +1,47 @@
++from fastapi import APIRouter, Depends, status
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.database import get_db
++from app.dependencies import get_current_user
++from app.models.user import User
++from app.schemas.notification import NotificationResponse
++from app.services.notification_service import (
++    get_unread_notifications,
++    mark_all_notifications_read,
++    mark_notification_read,
++)
++
++router = APIRouter()
++
++
++@router.get("/notifications", response_model=dict)
++async def list_notifications(
++    limit: int = 50,
++    db: AsyncSession = Depends(get_db),
++    current_user: User = Depends(get_current_user),
++):
++    items = await get_unread_notifications(db, current_user.id, limit=limit)
++    unread_count = sum(1 for n in items if not n.is_read)
++    return {
++        "items": [NotificationResponse.model_validate(n).model_dump() for n in items],
++        "unread_count": unread_count,
++    }
++
++
++@router.post("/notifications/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT)
++async def read_notification(
++    notification_id: int,
++    db: AsyncSession = Depends(get_db),
++    current_user: User = Depends(get_current_user),
++):
++    await mark_notification_read(db, notification_id, current_user.id)
++    return None
++
++
++@router.post("/notifications/read-all", status_code=status.HTTP_204_NO_CONTENT)
++async def read_all_notifications(
++    db: AsyncSession = Depends(get_db),
++    current_user: User = Depends(get_current_user),
++):
++    await mark_all_notifications_read(db, current_user.id)
++    return None
+diff --git a/backend/app/schemas/notification.py b/backend/app/schemas/notification.py
+new file mode 100644
+index 0000000..c5cfe9d
+--- /dev/null
++++ b/backend/app/schemas/notification.py
+@@ -0,0 +1,16 @@
++from datetime import datetime
++from typing import Optional
++
++from pydantic import BaseModel, ConfigDict
++
++
++class NotificationResponse(BaseModel):
++    id: int
++    type: str
++    title: str
++    message: str
++    data: dict
++    is_read: bool
++    created_at: datetime
++
++    model_config = ConfigDict(from_attributes=True)
+diff --git a/backend/app/services/notification_service.py b/backend/app/services/notification_service.py
+new file mode 100644
+index 0000000..3ac7356
+--- /dev/null
++++ b/backend/app/services/notification_service.py
+@@ -0,0 +1,54 @@
++from sqlalchemy import select, update
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.notification import Notification
++
++
++async def create_notification(
++    db: AsyncSession,
++    user_id: int,
++    type: str,
++    title: str,
++    message: str,
++    data: dict | None = None,
++) -> Notification:
++    notif = Notification(
++        user_id=user_id,
++        type=type,
++        title=title,
++        message=message,
++        data=data or {},
++    )
++    db.add(notif)
++    # 不自行 flush，由调用方统一 commit
++    return notif
++
++
++async def get_unread_notifications(
++    db: AsyncSession, user_id: int, limit: int = 50
++) -> list[Notification]:
++    result = await db.execute(
++        select(Notification)
++        .where(Notification.user_id == user_id)
++        .order_by(Notification.created_at.desc())
++        .limit(limit)
++    )
++    return result.scalars().all()
++
++
++async def mark_notification_read(db: AsyncSession, notification_id: int, user_id: int) -> bool:
++    result = await db.execute(
++        update(Notification)
++        .where(Notification.id == notification_id, Notification.user_id == user_id)
++        .values(is_read=True)
++    )
++    return result.rowcount > 0
++
++
++async def mark_all_notifications_read(db: AsyncSession, user_id: int) -> int:
++    result = await db.execute(
++        update(Notification)
++        .where(Notification.user_id == user_id, Notification.is_read.is_(False))
++        .values(is_read=True)
++    )
++    return result.rowcount
+diff --git a/backend/tests/test_notifications.py b/backend/tests/test_notifications.py
+new file mode 100644
+index 0000000..12e30bc
+--- /dev/null
++++ b/backend/tests/test_notifications.py
+@@ -0,0 +1,136 @@
++from datetime import datetime, timedelta
++from sqlalchemy import select
++
++from app.models.notification import Notification
++from app.models.user import User
++from app.services.notification_service import (
++    create_notification,
++    get_unread_notifications,
++    mark_all_notifications_read,
++    mark_notification_read,
++)
++
++
++# ===== Service layer tests =====
++
++async def test_create_notification(db):
++    from tests.conftest import _create_user
++
++    user = await _create_user(db, "notif_user", "customer")
++    notif = await create_notification(
++        db, user.id, "sla_breach", "Title", "Message", {"ticket_id": 1}
++    )
++
++    assert notif.user_id == user.id
++    assert notif.type == "sla_breach"
++    assert notif.title == "Title"
++    assert notif.message == "Message"
++    assert notif.data == {"ticket_id": 1}
++
++    await db.commit()
++    await db.refresh(notif)
++    assert notif.id is not None
++    assert notif.is_read is False
++
++
++async def test_get_unread_notifications(db):
++    from tests.conftest import _create_user
++
++    user = await _create_user(db, "notif_user2", "customer")
++
++    notif1 = await create_notification(db, user.id, "type1", "First", "Msg1")
++    notif1.created_at = datetime.utcnow() - timedelta(hours=2)
++
++    notif2 = await create_notification(db, user.id, "type2", "Second", "Msg2")
++    notif2.created_at = datetime.utcnow() - timedelta(hours=1)
++
++    notif3 = await create_notification(db, user.id, "type3", "Third", "Msg3")
++    notif3.created_at = datetime.utcnow() - timedelta(hours=3)
++
++    await db.commit()
++
++    items = await get_unread_notifications(db, user.id, limit=50)
++    assert len(items) == 3
++    titles = [n.title for n in items]
++    assert titles == ["Second", "First", "Third"]
++
++
++async def test_mark_notification_read(db):
++    from tests.conftest import _create_user
++
++    user = await _create_user(db, "notif_user3", "customer")
++    notif = await create_notification(db, user.id, "type", "Title", "Message")
++    await db.commit()
++    await db.refresh(notif)
++
++    ok = await mark_notification_read(db, notif.id, user.id)
++    assert ok is True
++
++    await db.commit()
++
++    result = await db.execute(select(Notification).where(Notification.id == notif.id))
++    updated = result.scalar_one()
++    assert updated.is_read is True
++
++
++async def test_mark_all_notifications_read(db):
++    from tests.conftest import _create_user
++
++    user = await _create_user(db, "notif_user4", "customer")
++
++    notif1 = await create_notification(db, user.id, "type1", "Title1", "Msg1")
++    notif2 = await create_notification(db, user.id, "type2", "Title2", "Msg2")
++    notif3 = await create_notification(db, user.id, "type3", "Title3", "Msg3")
++    notif3.is_read = True
++
++    await db.commit()
++
++    count = await mark_all_notifications_read(db, user.id)
++    assert count == 2
++
++    await db.commit()
++
++    result = await db.execute(select(Notification).where(Notification.user_id == user.id))
++    items = result.scalars().all()
++    assert all(n.is_read for n in items)
++
++
++# ===== API tests =====
++
++async def test_api_list_notifications(client, customer_auth_headers, db):
++    result = await db.execute(select(User).where(User.username == "customer_test"))
++    user = result.scalar_one()
++
++    notif1 = await create_notification(
++        db, user.id, "sla_warn", "SLA Warning", "Ticket approaching deadline"
++    )
++    notif2 = await create_notification(
++        db, user.id, "assigned", "Assigned", "You have a new ticket"
++    )
++    await db.commit()
++
++    r = await client.get("/api/v1/notifications", headers=customer_auth_headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert "items" in data
++    assert "unread_count" in data
++    assert len(data["items"]) == 2
++    assert data["unread_count"] == 2
++
++
++async def test_api_mark_read_own_only(client, supervisor_auth_headers, db):
++    from tests.conftest import _create_user
++
++    customer = await _create_user(db, "notif_customer", "customer")
++    notif = await create_notification(db, customer.id, "type", "Title", "Message")
++    await db.commit()
++    await db.refresh(notif)
++
++    r = await client.post(
++        f"/api/v1/notifications/{notif.id}/read", headers=supervisor_auth_headers
++    )
++    assert r.status_code == 204
++
++    result = await db.execute(select(Notification).where(Notification.id == notif.id))
++    updated = result.scalar_one()
++    assert updated.is_read is False

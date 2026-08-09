@@ -1,0 +1,372 @@
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 1d01425..0d436dc 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -5,21 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.responses import JSONResponse
+ 
+ from app.config import get_settings
+ from app.database import AsyncSessionLocal
+ from app.exceptions import (
+     DuplicateException,
+     NotFoundException,
+     PermissionDeniedException,
+     TicketSystemException,
+ )
+-from app.routers import auth, categories, dispatch, notifications, tickets, webhooks
++from app.routers import auth, categories, dispatch, notifications, sla, tickets, webhooks
+ 
+ settings = get_settings()
+ 
+ 
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     # 启动时创建默认管理员和邮件默认分类
+     from app.services.auth_service import create_default_admin
+     from app.services.email_service import ensure_default_email_category
+ 
+@@ -53,17 +53,18 @@ app.add_middleware(
+     allow_credentials=True,
+     allow_methods=["*"],
+     allow_headers=["*"],
+ )
+ 
+ # Routers
+ app.include_router(notifications.router, prefix="/api/v1", tags=["Notifications"])
+ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+ app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
+ app.include_router(tickets.router, prefix="/api/v1", tags=["Tickets"])
++app.include_router(sla.router, prefix="/api/v1", tags=["SLA"])
+ app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
+ app.include_router(webhooks.router, prefix="/api/v1", tags=["Webhooks"])
+ 
+ 
+ @app.get("/health")
+ async def health_check():
+     return {"status": "ok"}
+diff --git a/backend/app/routers/sla.py b/backend/app/routers/sla.py
+new file mode 100644
+index 0000000..1b63161
+--- /dev/null
++++ b/backend/app/routers/sla.py
+@@ -0,0 +1,51 @@
++from fastapi import APIRouter, Depends
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.database import get_db
++from app.dependencies import get_current_user, require_role
++from app.exceptions import NotFoundException
++from app.models.user import User
++from app.routers.tickets import check_ticket_access
++from app.schemas.sla import SLAResponse
++from app.services.sla_service import get_sla_record_by_ticket_id
++from app.services.ticket_service import get_ticket_by_id
++
++router = APIRouter()
++
++
++@router.get("/tickets/{ticket_id}/sla", response_model=SLAResponse)
++async def get_ticket_sla(
++    ticket_id: int,
++    db: AsyncSession = Depends(get_db),
++    current_user: User = Depends(get_current_user),
++):
++    ticket = await get_ticket_by_id(db, ticket_id)
++    if not ticket:
++        raise NotFoundException("工单不存在")
++    await check_ticket_access(ticket, current_user)
++
++    sla = await get_sla_record_by_ticket_id(db, ticket_id)
++    if not sla:
++        raise NotFoundException("SLA 记录不存在")
++    return sla
++
++
++@router.get("/admin/sla/overdue", response_model=list[SLAResponse])
++async def list_overdue_sla(
++    breach_type: str | None = None,
++    db: AsyncSession = Depends(get_db),
++    current_user: User = Depends(require_role("admin", "supervisor")),
++):
++    from sqlalchemy import select
++    from app.models.sla_record import SLARecord
++
++    stmt = select(SLARecord).where(
++        (SLARecord.first_resp_breached.is_(True)) | (SLARecord.resolution_breached.is_(True))
++    )
++    if breach_type == "first_resp":
++        stmt = stmt.where(SLARecord.first_resp_breached.is_(True))
++    elif breach_type == "resolution":
++        stmt = stmt.where(SLARecord.resolution_breached.is_(True))
++
++    result = await db.execute(stmt.order_by(SLARecord.id.desc()))
++    return result.scalars().all()
+diff --git a/backend/app/routers/tickets.py b/backend/app/routers/tickets.py
+index 33d7744..8848794 100644
+--- a/backend/app/routers/tickets.py
++++ b/backend/app/routers/tickets.py
+@@ -1,35 +1,37 @@
+ from fastapi import APIRouter, Depends, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.database import get_db
+ from app.dependencies import get_current_user, require_role
+ from app.exceptions import NotFoundException, PermissionDeniedException
+ from app.models.ticket import Ticket
+ from app.models.user import User
++from app.schemas.sla import SLASummary
+ from app.schemas.ticket import (
+     AssignRequest,
+     StatusUpdateRequest,
+     TicketCreate,
+     TicketResponse,
+     TicketUpdate,
+ )
+ from app.schemas.ticket_reply import ReplyCreate, ReplyResponse
+ from app.services.ticket_service import (
+     create_ticket,
+     get_ticket_by_id,
+     get_tickets_query,
+     transition_ticket_status,
+     update_ticket,
+ )
+ from app.services.reply_service import create_reply, get_replies_by_ticket
+ from app.services.dispatch_service import auto_assign, log_manual_assign
++from app.services.sla_service import get_sla_record_by_ticket_id
+ 
+ router = APIRouter()
+ 
+ 
+ async def check_ticket_access(ticket: Ticket, current_user: User) -> None:
+     if current_user.role == "customer" and ticket.requester_id != current_user.id:
+         raise PermissionDeniedException("无权访问该工单")
+     if (
+         current_user.role == "agent"
+         and ticket.assignee_id != current_user.id
+@@ -82,21 +84,26 @@ async def list_tickets(
+ @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
+ async def get_ticket(
+     ticket_id: int,
+     db: AsyncSession = Depends(get_db),
+     current_user: User = Depends(get_current_user),
+ ):
+     ticket = await get_ticket_by_id(db, ticket_id)
+     if not ticket:
+         raise NotFoundException("工单不存在")
+     await check_ticket_access(ticket, current_user)
+-    return ticket
++
++    sla = await get_sla_record_by_ticket_id(db, ticket_id)
++    response = TicketResponse.model_validate(ticket)
++    if sla:
++        response.sla = SLASummary.model_validate(sla)
++    return response
+ 
+ 
+ @router.post("/tickets/{ticket_id}/replies", response_model=ReplyResponse, status_code=status.HTTP_201_CREATED)
+ async def reply_ticket(
+     ticket_id: int,
+     data: ReplyCreate,
+     db: AsyncSession = Depends(get_db),
+     current_user: User = Depends(get_current_user),
+ ):
+     ticket = await get_ticket_by_id(db, ticket_id)
+diff --git a/backend/app/schemas/sla.py b/backend/app/schemas/sla.py
+new file mode 100644
+index 0000000..607d2d7
+--- /dev/null
++++ b/backend/app/schemas/sla.py
+@@ -0,0 +1,28 @@
++from datetime import datetime
++from typing import Optional
++
++from pydantic import BaseModel, ConfigDict
++
++
++class SLAResponse(BaseModel):
++    ticket_id: int
++    priority: str
++    first_resp_hours: int
++    resolution_hours: int
++    first_resp_due: datetime
++    resolution_due: datetime
++    first_resp_at: Optional[datetime] = None
++    resolved_at: Optional[datetime] = None
++    first_resp_breached: bool
++    resolution_breached: bool
++
++    model_config = ConfigDict(from_attributes=True)
++
++
++class SLASummary(BaseModel):
++    first_resp_due: datetime
++    resolution_due: datetime
++    first_resp_breached: bool
++    resolution_breached: bool
++
++    model_config = ConfigDict(from_attributes=True)
+diff --git a/backend/app/schemas/ticket.py b/backend/app/schemas/ticket.py
+index e855189..f7b29ef 100644
+--- a/backend/app/schemas/ticket.py
++++ b/backend/app/schemas/ticket.py
+@@ -1,16 +1,19 @@
+ from datetime import datetime
+ from typing import Optional
+ 
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ 
++from app.schemas.sla import SLASummary
++
++
+ class TicketBase(BaseModel):
+     title: str = Field(..., max_length=200)
+     description: str = Field(...)
+     category_id: int = Field(..., gt=0)
+     priority: str = Field(default="P2", pattern="^(P0|P1|P2|P3)$")
+     source: str = Field(default="web", pattern="^(web|email|api)$")
+ 
+ 
+ class TicketCreate(TicketBase):
+     assignee_id: Optional[int] = None
+@@ -33,20 +36,21 @@ class TicketResponse(BaseModel):
+     status: str
+     priority: str
+     category_id: int
+     requester_id: int
+     assignee_id: Optional[int] = None
+     source: str
+     created_at: datetime
+     updated_at: datetime
+     resolved_at: Optional[datetime] = None
+     closed_at: Optional[datetime] = None
++    sla: Optional[SLASummary] = None
+ 
+     model_config = ConfigDict(from_attributes=True)
+ 
+ 
+ class StatusUpdateRequest(BaseModel):
+     status: str
+ 
+ 
+ class AssignRequest(BaseModel):
+     assignee_id: int
+diff --git a/backend/tests/test_sla.py b/backend/tests/test_sla.py
+index 50ce691..7da14c4 100644
+--- a/backend/tests/test_sla.py
++++ b/backend/tests/test_sla.py
+@@ -216,10 +216,114 @@ async def test_reopen_clears_resolved_at(db):
+     ticket = await transition_ticket_status(db, ticket, "resolved")
+     assert ticket.resolved_at is not None
+ 
+     ticket = await transition_ticket_status(db, ticket, "in_progress")
+     assert ticket.resolved_at is None
+ 
+     result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
+     sla = result.scalar_one_or_none()
+     assert sla is not None
+     assert sla.resolved_at is None
++
++
++# ===== Task 5: SLA Query API and Embedding =====
++
++# API-SLA-301: GET /api/v1/tickets/{id}/sla returns 200 with correct fields
++async def test_api_get_ticket_sla(client, customer_auth_headers, db):
++    customer = await _create_user(db, "sla_api_customer", "customer")
++    category = await _create_category(db)
++    ticket = await _create_ticket(db, "SLA API Ticket", "Desc", category.id, customer.id)
++
++    # Get token for the ticket owner
++    from app.services.auth_service import create_access_token
++    token = await create_access_token(customer.id)
++    headers = {"Authorization": f"Bearer {token}"}
++
++    r = await client.get(f"/api/v1/tickets/{ticket.id}/sla", headers=headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert data["ticket_id"] == ticket.id
++    assert data["priority"] == "P2"
++    assert "first_resp_hours" in data
++    assert "resolution_hours" in data
++    assert "first_resp_due" in data
++    assert "resolution_due" in data
++    assert "first_resp_breached" in data
++    assert "resolution_breached" in data
++
++
++# API-SLA-302: customer cannot access another customer's ticket SLA (403)
++async def test_api_get_ticket_sla_forbidden(client, customer_auth_headers, db):
++    another_customer = await _create_user(db, "another_sla_customer", "customer")
++    category = await _create_category(db)
++    ticket = await _create_ticket(db, "Private SLA", "Desc", category.id, another_customer.id)
++
++    r = await client.get(f"/api/v1/tickets/{ticket.id}/sla", headers=customer_auth_headers)
++    assert r.status_code == 403
++    assert r.json()["detail"] == "无权访问该工单"
++
++
++# API-SLA-303: admin GET /api/v1/admin/sla/overdue returns breached SLAs
++async def test_api_admin_overdue_list(client, admin_auth_headers, db):
++    customer = await _create_user(db, "overdue_customer", "customer")
++    category = await _create_category(db)
++    ticket1 = await _create_ticket(db, "Overdue 1", "Desc", category.id, customer.id)
++    ticket2 = await _create_ticket(db, "Overdue 2", "Desc", category.id, customer.id)
++    ticket3 = await _create_ticket(db, "Normal 3", "Desc", category.id, customer.id)
++
++    # Manually mark SLAs as breached
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket1.id))
++    sla1 = result.scalar_one()
++    sla1.first_resp_breached = True
++
++    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket2.id))
++    sla2 = result.scalar_one()
++    sla2.resolution_breached = True
++
++    await db.commit()
++
++    r = await client.get("/api/v1/admin/sla/overdue", headers=admin_auth_headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert len(data) >= 2
++    ticket_ids = [item["ticket_id"] for item in data]
++    assert ticket1.id in ticket_ids
++    assert ticket2.id in ticket_ids
++    assert ticket3.id not in ticket_ids
++
++    # Filter by first_resp
++    r = await client.get("/api/v1/admin/sla/overdue?breach_type=first_resp", headers=admin_auth_headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert all(item["first_resp_breached"] for item in data)
++
++    # Filter by resolution
++    r = await client.get("/api/v1/admin/sla/overdue?breach_type=resolution", headers=admin_auth_headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert all(item["resolution_breached"] for item in data)
++
++
++# API-SLA-304: GET /api/v1/tickets/{id} includes sla field
++async def test_ticket_detail_includes_sla_summary(client, customer_auth_headers, db):
++    customer = await _create_user(db, "detail_sla_customer", "customer")
++    category = await _create_category(db)
++    ticket = await _create_ticket(db, "Detail SLA", "Desc", category.id, customer.id)
++
++    # Get token for the ticket owner
++    from app.services.auth_service import create_access_token
++    token = await create_access_token(customer.id)
++    headers = {"Authorization": f"Bearer {token}"}
++
++    r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=headers)
++    assert r.status_code == 200
++    data = r.json()
++    assert "sla" in data
++    assert data["sla"] is not None
++    assert "first_resp_due" in data["sla"]
++    assert "resolution_due" in data["sla"]
++    assert "first_resp_breached" in data["sla"]
++    assert "resolution_breached" in data["sla"]
++    # SLASummary should NOT include ticket_id or hours
++    assert "ticket_id" not in data["sla"]
++    assert "first_resp_hours" not in data["sla"]
++
