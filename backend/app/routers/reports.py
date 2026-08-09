@@ -1,14 +1,20 @@
+import re
+import uuid
 from datetime import date
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
 from app.exceptions import TicketSystemException
 from app.schemas.report import (
     AgentPerformanceResponse,
     CategoryDistributionResponse,
+    ExportRequest,
     OverviewResponse,
     SatisfactionResponse,
     TrendResponse,
@@ -20,6 +26,7 @@ from app.services.report_service import (
     get_satisfaction_stats,
     get_trend,
 )
+from app.tasks.export_tasks import generate_report_export
 
 router = APIRouter()
 
@@ -76,3 +83,69 @@ async def satisfaction(
     _=Depends(require_role("admin", "supervisor")),
 ):
     return await get_satisfaction_stats(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
+
+
+UUID_RE = re.compile(r"^[a-f0-9\-]{36}$")
+
+
+@router.post("/admin/reports/export")
+async def create_export(
+    req: ExportRequest,
+    _=Depends(require_role("admin", "supervisor")),
+):
+    task_id = str(uuid.uuid4())
+    generate_report_export.delay(
+        task_id=task_id,
+        report_type=req.report_type,
+        format=req.format,
+        start_date=req.start_date.isoformat() if req.start_date else None,
+        end_date=req.end_date.isoformat() if req.end_date else None,
+    )
+    return {"task_id": task_id, "status": "pending"}
+
+
+@router.get("/admin/reports/export/{task_id}")
+async def get_export_status(
+    task_id: str,
+    _=Depends(require_role("admin", "supervisor")),
+):
+    if not UUID_RE.match(task_id):
+        raise HTTPException(status_code=400, detail="无效的 task_id")
+
+    settings = get_settings()
+    export_dir = Path(settings.EXPORT_DIR)
+    for fmt in ("xlsx", "csv"):
+        file_path = export_dir / f"{task_id}.{fmt}"
+        if file_path.exists():
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "download_url": f"/api/v1/admin/reports/exports/download/{task_id}",
+            }
+    return {"task_id": task_id, "status": "pending", "download_url": None}
+
+
+@router.get("/admin/reports/exports/download/{task_id}")
+async def download_export(
+    task_id: str,
+    _=Depends(require_role("admin", "supervisor")),
+):
+    if not UUID_RE.match(task_id):
+        raise HTTPException(status_code=400, detail="无效的 task_id")
+
+    settings = get_settings()
+    export_dir = Path(settings.EXPORT_DIR)
+    for fmt in ("xlsx", "csv"):
+        file_path = export_dir / f"{task_id}.{fmt}"
+        if file_path.exists():
+            media_type = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                if fmt == "xlsx"
+                else "text/csv"
+            )
+            return FileResponse(
+                path=str(file_path),
+                filename=f"report_{task_id}.{fmt}",
+                media_type=media_type,
+            )
+    raise HTTPException(status_code=404, detail="导出文件不存在或尚未完成")
