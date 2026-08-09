@@ -1,11 +1,9 @@
-import pytest
 from datetime import datetime, timedelta
 from sqlalchemy import select
 
+from app.models.category import Category
 from app.models.sla_record import SLARecord
 from app.models.ticket import Ticket
-from app.models.user import User
-from app.models.category import Category
 from app.schemas.ticket_reply import ReplyCreate
 from app.services.reply_service import create_reply
 from app.services.ticket_service import transition_ticket_status
