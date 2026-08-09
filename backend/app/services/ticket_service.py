@@ -7,6 +7,7 @@ from app.exceptions import DuplicateException
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketUpdate
+from app.services.sla_service import create_sla_record, get_sla_record_by_ticket_id
 
 
 async def generate_ticket_no(db: AsyncSession) -> str:
@@ -34,6 +35,10 @@ async def create_ticket(
         source=data.source,
     )
     db.add(ticket)
+    await db.commit()
+    await db.refresh(ticket)
+    # 创建 SLA 记录（ticket 已有 id）
+    await create_sla_record(db, ticket)
     await db.commit()
     await db.refresh(ticket)
     return ticket
@@ -109,11 +114,26 @@ def can_transition(current: str, target: str) -> bool:
 async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_status: str) -> Ticket:
     if not can_transition(ticket.status, target_status):
         raise DuplicateException(f"无法从 {ticket.status} 流转到 {target_status}")
+
+    old_status = ticket.status
     ticket.status = target_status
+
     if target_status == "resolved":
         ticket.resolved_at = datetime.utcnow()
+        sla = await get_sla_record_by_ticket_id(db, ticket.id)
+        if sla and sla.resolved_at is None:
+            sla.resolved_at = datetime.utcnow()
+
     if target_status == "closed":
         ticket.closed_at = datetime.utcnow()
+
+    # 重新打开：清空 resolved_at，让其继续受 resolution SLA 约束
+    if old_status == "resolved" and target_status == "in_progress":
+        ticket.resolved_at = None
+        sla = await get_sla_record_by_ticket_id(db, ticket.id)
+        if sla:
+            sla.resolved_at = None
+
     await db.commit()
     await db.refresh(ticket)
     return ticket

@@ -1,14 +1,24 @@
+from datetime import datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.ticket_reply import TicketReply
 from app.schemas.ticket_reply import ReplyCreate
 from app.models.ticket import Ticket
+from app.services.sla_service import get_sla_record_by_ticket_id
 
-async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, author_id: int) -> TicketReply:
+async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, author_id: int, is_agent_reply: bool = False) -> TicketReply:
     reply = TicketReply(ticket_id=ticket.id, author_id=author_id, content=data.content, is_internal=data.is_internal)
     db.add(reply)
     await db.commit()
     await db.refresh(reply)
+
+    if is_agent_reply:
+        sla = await get_sla_record_by_ticket_id(db, ticket.id)
+        if sla and sla.first_resp_at is None:
+            sla.first_resp_at = datetime.utcnow()
+            await db.commit()
+
     return reply
 
 async def get_replies_by_ticket(db: AsyncSession, ticket_id: int, include_internal: bool = False) -> list[TicketReply]:

@@ -107,7 +107,8 @@ async def reply_ticket(
     if current_user.role in ("agent", "supervisor", "admin") and ticket.status == "open":
         ticket.status = "in_progress"
         ticket.assignee_id = current_user.id
-    reply = await create_reply(db, ticket, data, current_user.id)
+    is_agent_reply = current_user.role in ("agent", "supervisor", "admin") and not data.is_internal
+    reply = await create_reply(db, ticket, data, current_user.id, is_agent_reply=is_agent_reply)
     return reply
 
 
