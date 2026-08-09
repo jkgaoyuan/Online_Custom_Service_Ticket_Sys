@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     EMAIL_DEFAULT_CATEGORY_CODE: str = "email"
     EMAIL_ALLOWED_DOMAINS: list[str] = []
 
+    # Reports
+    EXPORT_DIR: str = "./exports"
+
     # Outbound — SMTP
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
