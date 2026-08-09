@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.config import get_settings
 from app.database import Base
-from app.models import agent_skill, category, ticket, ticket_reply, user  # noqa: F401
+from app.models import (  # noqa: F401
+    agent_skill,
+    category,
+    email_ingestion,
+    ticket,
+    ticket_reply,
+    user,
+)
 
 # this is the Alembic Config object
 config = context.config
@@ -59,4 +66,5 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     import asyncio
+
     asyncio.run(run_migrations_online())
