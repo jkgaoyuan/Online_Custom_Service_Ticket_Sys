@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_role
-from app.exceptions import DuplicateException, TicketSystemException
+from app.exceptions import TicketSystemException
 from app.schemas.report import (
     AgentPerformanceResponse,
     CategoryDistributionResponse,
@@ -24,16 +24,6 @@ from app.services.report_service import (
 router = APIRouter()
 
 
-def _map_validation_error(coro):
-    """Catch DuplicateException from report_service validation and return 422."""
-    async def wrapper():
-        try:
-            return await coro
-        except DuplicateException as e:
-            raise TicketSystemException(e.message, status_code=422)
-    return wrapper()
-
-
 @router.get("/admin/reports/overview", response_model=OverviewResponse)
 async def overview(
     db=Depends(get_db),
@@ -49,9 +39,7 @@ async def agent_performance(
     db=Depends(get_db),
     _=Depends(require_role("admin", "supervisor")),
 ):
-    return await _map_validation_error(
-        get_agent_performance(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
-    )
+    return await get_agent_performance(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
 
 
 @router.get("/admin/reports/category-distribution", response_model=list[CategoryDistributionResponse])
@@ -61,9 +49,7 @@ async def category_distribution(
     db=Depends(get_db),
     _=Depends(require_role("admin", "supervisor")),
 ):
-    return await _map_validation_error(
-        get_category_distribution(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
-    )
+    return await get_category_distribution(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
 
 
 @router.get("/admin/reports/trend", response_model=list[TrendResponse])
@@ -74,13 +60,11 @@ async def trend(
     db=Depends(get_db),
     _=Depends(require_role("admin", "supervisor")),
 ):
-    return await _map_validation_error(
-        get_trend(
-            db,
-            granularity,
-            start_date.isoformat() if start_date else None,
-            end_date.isoformat() if end_date else None,
-        )
+    return await get_trend(
+        db,
+        granularity,
+        start_date.isoformat() if start_date else None,
+        end_date.isoformat() if end_date else None,
     )
 
 
@@ -91,6 +75,4 @@ async def satisfaction(
     db=Depends(get_db),
     _=Depends(require_role("admin", "supervisor")),
 ):
-    return await _map_validation_error(
-        get_satisfaction_stats(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)
-    )
+    return await get_satisfaction_stats(db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None)

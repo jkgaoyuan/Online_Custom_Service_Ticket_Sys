@@ -119,13 +119,13 @@ async def test_empty_data_returns_zeros(db):
 
 # API-RPT-203: date range exceeds one year returns error
 async def test_date_range_exceeds_one_year():
-    from app.exceptions import DuplicateException
+    from app.exceptions import ValidationException
     start = "2024-01-01"
     end = "2026-01-01"
     try:
         validate_date_range(start, end)
         assert False, "Expected exception"
-    except DuplicateException as e:
+    except ValidationException as e:
         assert "365" in e.message or "1年" in e.message
 
 
@@ -147,11 +147,11 @@ async def test_trend_day_granularity_returns_correct_buckets(db):
 
 # API-RPT-204: invalid granularity raises error
 async def test_invalid_granularity_raises_error(db):
-    from app.exceptions import DuplicateException
+    from app.exceptions import ValidationException
     try:
         await get_trend(db, "hour", "2026-01-01", "2026-01-02")
         assert False, "Expected exception"
-    except DuplicateException as e:
+    except ValidationException as e:
         assert "granularity" in e.message.lower() or "day" in e.message
 
 

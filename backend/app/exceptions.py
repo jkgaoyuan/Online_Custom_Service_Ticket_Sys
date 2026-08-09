@@ -20,3 +20,8 @@ class PermissionDeniedException(TicketSystemException):
 class DuplicateException(TicketSystemException):
     def __init__(self, message: str = "Resource already exists"):
         super().__init__(message, status_code=409)
+
+
+class ValidationException(TicketSystemException):
+    def __init__(self, message: str = "Validation failed"):
+        super().__init__(message, status_code=422)

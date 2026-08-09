@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import Integer, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import DuplicateException
+from app.exceptions import ValidationException
 from app.models.category import Category
 from app.models.sla_record import SLARecord
 from app.models.ticket import Ticket
@@ -20,9 +20,9 @@ def validate_date_range(start_date: str | None, end_date: str | None) -> tuple[d
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1, microseconds=-1)
         if (end - start).days > MAX_DATE_RANGE_DAYS:
-            raise DuplicateException(f"日期范围不能超过 {MAX_DATE_RANGE_DAYS} 天")
+            raise ValidationException(f"日期范围不能超过 {MAX_DATE_RANGE_DAYS} 天")
         if start > end:
-            raise DuplicateException("开始日期不能晚于结束日期")
+            raise ValidationException("开始日期不能晚于结束日期")
         return start, end
     end = now
     start = now - timedelta(days=30)
@@ -265,7 +265,7 @@ async def get_trend(
     end_date: str | None,
 ) -> list[dict]:
     if granularity not in GRANULARITY_WHITELIST:
-        raise DuplicateException(f"granularity 必须是以下之一: {', '.join(GRANULARITY_WHITELIST)}")
+        raise ValidationException(f"granularity 必须是以下之一: {', '.join(GRANULARITY_WHITELIST)}")
 
     start, end = validate_date_range(start_date, end_date)
 
