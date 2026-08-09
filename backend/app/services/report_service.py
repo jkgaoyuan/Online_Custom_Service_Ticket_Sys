@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import Integer, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DuplicateException
@@ -253,3 +253,70 @@ async def get_agent_performance(
         })
 
     return sorted(result, key=lambda x: x["total_assigned"], reverse=True)
+
+
+GRANULARITY_WHITELIST = {"day", "week", "month"}
+
+
+async def get_trend(
+    db: AsyncSession,
+    granularity: str,
+    start_date: str | None,
+    end_date: str | None,
+) -> list[dict]:
+    if granularity not in GRANULARITY_WHITELIST:
+        raise DuplicateException(f"granularity 必须是以下之一: {', '.join(GRANULARITY_WHITELIST)}")
+
+    start, end = validate_date_range(start_date, end_date)
+
+    sql = text(f"""
+        WITH buckets AS (
+            SELECT CAST(DATE_TRUNC(:granularity, gs) AS DATE) AS bucket
+            FROM generate_series(
+                CAST(:start_dt AS TIMESTAMP),
+                CAST(:end_dt AS TIMESTAMP),
+                INTERVAL '1 {granularity}'
+            ) AS gs
+        ),
+        created_counts AS (
+            SELECT CAST(DATE_TRUNC(:granularity, created_at) AS DATE) AS bucket,
+                   COUNT(*) AS cnt
+            FROM tickets
+            WHERE created_at BETWEEN :start_dt AND :end_dt
+            GROUP BY CAST(DATE_TRUNC(:granularity, created_at) AS DATE)
+        ),
+        resolved_counts AS (
+            SELECT CAST(DATE_TRUNC(:granularity, resolved_at) AS DATE) AS bucket,
+                   COUNT(*) AS cnt
+            FROM tickets
+            WHERE resolved_at IS NOT NULL
+              AND resolved_at BETWEEN :start_dt AND :end_dt
+            GROUP BY CAST(DATE_TRUNC(:granularity, resolved_at) AS DATE)
+        )
+        SELECT
+            CAST(b.bucket AS TEXT),
+            COALESCE(c.cnt, 0) AS created,
+            COALESCE(r.cnt, 0) AS resolved
+        FROM buckets b
+        LEFT JOIN created_counts c ON b.bucket = c.bucket
+        LEFT JOIN resolved_counts r ON b.bucket = r.bucket
+        ORDER BY b.bucket
+    """)
+
+    result = await db.execute(
+        sql,
+        {
+            "granularity": granularity,
+            "start_dt": start,
+            "end_dt": end,
+        },
+    )
+
+    return [
+        {
+            "bucket": row[0],
+            "created": row[1],
+            "resolved": row[2],
+        }
+        for row in result.all()
+    ]

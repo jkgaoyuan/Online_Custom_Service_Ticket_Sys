@@ -5,6 +5,7 @@ from app.services.report_service import (
     get_category_distribution,
     get_overview,
     get_satisfaction_stats,
+    get_trend,
     validate_date_range,
 )
 from tests.conftest import _create_category, _create_resolved_ticket, _create_ticket, _create_user
@@ -126,3 +127,29 @@ async def test_date_range_exceeds_one_year():
         assert False, "Expected exception"
     except DuplicateException as e:
         assert "365" in e.message or "1年" in e.message
+
+
+# API-RPT-104: trend with day granularity returns correct buckets
+async def test_trend_day_granularity_returns_correct_buckets(db):
+    customer = await _create_user(db, "trend_customer", "customer")
+    category = await _create_category(db)
+    await _create_ticket(db, "Trend1", "D1", category.id, customer.id, status="resolved")
+
+    start = (datetime.utcnow() - timedelta(days=6)).date().isoformat()
+    end = datetime.utcnow().date().isoformat()
+    result = await get_trend(db, "day", start, end)
+    assert len(result) >= 1
+    item = result[0]
+    assert "bucket" in item
+    assert "created" in item
+    assert "resolved" in item
+
+
+# API-RPT-204: invalid granularity raises error
+async def test_invalid_granularity_raises_error(db):
+    from app.exceptions import DuplicateException
+    try:
+        await get_trend(db, "hour", "2026-01-01", "2026-01-02")
+        assert False, "Expected exception"
+    except DuplicateException as e:
+        assert "granularity" in e.message.lower() or "day" in e.message
