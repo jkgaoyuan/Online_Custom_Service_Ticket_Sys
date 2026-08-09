@@ -1,3 +1,4 @@
+import html
 import re
 
 from sqlalchemy import select
@@ -16,9 +17,19 @@ from app.services.ticket_service import create_ticket
 _TICKET_NO_PATTERN = re.compile(r"(TK-\d{8}-\d{4})")
 
 
+def html_to_text(html_body: str | None) -> str:
+    """Convert raw HTML to a safe plain-text representation."""
+    if not html_body:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", html_body)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def _get_body(inbound: InboundEmail) -> str:
     """Return the best available plain-text body for the inbound email."""
-    return inbound.text_body or inbound.html_body or ""
+    return inbound.text_body or html_to_text(inbound.html_body) or ""
 
 
 def extract_ticket_no_from_subject(subject: str) -> str | None:

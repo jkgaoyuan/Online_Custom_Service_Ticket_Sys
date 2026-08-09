@@ -11,11 +11,13 @@ from app.models.ticket_reply import TicketReply
 from app.models.user import User
 from app.schemas.email_webhook import InboundEmail
 from app.services.email_service import (
+    _get_body,
     create_reply_from_email,
     create_ticket_from_email,
     enqueue_moderation,
     ensure_default_email_category,
     extract_ticket_no_from_subject,
+    html_to_text,
     match_ticket_by_email,
     process_inbound_email,
 )
@@ -415,3 +417,88 @@ async def test_process_inbound_email_domain_not_allowed(db):
         )
         with pytest.raises(ValueError, match="not in allowlist"):
             await process_inbound_email(db, inbound)
+
+
+# ===== HTML-to-text body handling =====
+
+
+def test_html_to_text_strips_tags_and_entities():
+    assert html_to_text("<p>Hello &amp; welcome</p>") == "Hello & welcome"
+    assert html_to_text("<div>Line 1</div><br><div>Line 2</div>") == "Line 1 Line 2"
+
+
+def test_get_body_prefers_text_body():
+    inbound = InboundEmail(
+        message_id="text-msg@example.com",
+        from_address="user@example.com",
+        to_address="support@example.com",
+        subject="Text body preferred",
+        text_body="Plain text",
+        html_body="<p>HTML</p>",
+    )
+    assert _get_body(inbound) == "Plain text"
+
+
+def test_get_body_converts_html_body_when_text_missing():
+    inbound = InboundEmail(
+        message_id="html-msg@example.com",
+        from_address="user@example.com",
+        to_address="support@example.com",
+        subject="HTML fallback",
+        text_body=None,
+        html_body="<p>Hello</p>",
+    )
+    assert _get_body(inbound) == "Hello"
+
+
+def test_get_body_returns_empty_when_no_bodies():
+    inbound = InboundEmail(
+        message_id="empty-msg@example.com",
+        from_address="user@example.com",
+        to_address="support@example.com",
+        subject="No body",
+        text_body=None,
+        html_body=None,
+    )
+    assert _get_body(inbound) == ""
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_from_email_uses_plain_text_from_html(db):
+    user = await _email_user(db, "html_ticket_creator")
+    inbound = InboundEmail(
+        message_id="html-create-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="New ticket via email",
+        html_body="<p>HTML description</p>",
+    )
+    ticket = await create_ticket_from_email(db, inbound, user.id)
+    assert ticket.description == "HTML description"
+
+
+@pytest.mark.asyncio
+async def test_create_reply_from_email_uses_plain_text_from_html(db, open_ticket):
+    user = await _email_user(db, "html_reply_creator")
+    inbound = InboundEmail(
+        message_id="html-reply-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: ticket",
+        html_body="<p>HTML reply content</p>",
+    )
+    reply = await create_reply_from_email(db, inbound, open_ticket, user.id)
+    assert reply.content == "HTML reply content"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_moderation_uses_plain_text_from_html(db):
+    inbound = InboundEmail(
+        message_id="html-mod-msg@example.com",
+        from_address="unknown@example.com",
+        to_address="support@example.com",
+        subject="Moderation",
+        html_body="<p>Please help</p>",
+    )
+    ingestion = await enqueue_moderation(db, inbound)
+    assert ingestion.body == "Please help"
