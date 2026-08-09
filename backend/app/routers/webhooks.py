@@ -34,7 +34,7 @@ def verify_bearer_token(authorization: str | None) -> bool:
 async def receive_email_webhook(
     request: Request,
     authorization: str | None = Header(None, alias="Authorization"),
-):
+) -> dict:
     if not verify_bearer_token(authorization):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
@@ -53,7 +53,7 @@ async def list_email_ingestion(
     status_filter: str = "pending",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
-):
+) -> list[dict]:
     result = await db.execute(select(EmailIngestion).where(EmailIngestion.status == status_filter))
     items = result.scalars().all()
     return [
@@ -76,7 +76,7 @@ async def approve_email_ingestion(
     ingestion_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
-):
+) -> dict:
     result = await db.execute(select(EmailIngestion).where(EmailIngestion.id == ingestion_id))
     ingestion = result.scalar_one_or_none()
     if not ingestion:
@@ -84,26 +84,29 @@ async def approve_email_ingestion(
     if ingestion.status != "pending":
         raise DuplicateException("Ingestion already processed")
 
-    local_part = ingestion.sender_email.split("@")[0]
-    username = local_part
-    suffix = 0
-    original_username = username
-    while True:
-        result = await db.execute(select(User).where(User.username == username))
-        if not result.scalar_one_or_none():
-            break
-        suffix += 1
-        username = f"{original_username}_{secrets.token_hex(2)}"
-
-    user = User(
-        username=username,
-        email=ingestion.sender_email,
-        password_hash=get_password_hash(secrets.token_urlsafe(24)),
-        role="customer",
-        is_active=True,
+    existing_user_result = await db.execute(
+        select(User).where(User.email == ingestion.sender_email)
     )
-    db.add(user)
-    await db.flush()
+    user = existing_user_result.scalar_one_or_none()
+
+    if user is None:
+        local_part = ingestion.sender_email.split("@")[0]
+        username = local_part
+        while True:
+            result = await db.execute(select(User).where(User.username == username))
+            if not result.scalar_one_or_none():
+                break
+            username = f"{local_part}_{secrets.token_hex(2)}"
+
+        user = User(
+            username=username,
+            email=ingestion.sender_email,
+            password_hash=get_password_hash(secrets.token_urlsafe(24)),
+            role="customer",
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
 
     category = await ensure_default_email_category(db)
     data = TicketCreate(
@@ -130,11 +133,13 @@ async def reject_email_ingestion(
     ingestion_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
-):
+) -> dict:
     result = await db.execute(select(EmailIngestion).where(EmailIngestion.id == ingestion_id))
     ingestion = result.scalar_one_or_none()
     if not ingestion:
         raise NotFoundException("Ingestion not found")
+    if ingestion.status != "pending":
+        raise DuplicateException("Ingestion already processed")
     ingestion.status = "rejected"
     await db.commit()
     return {"status": "rejected"}
