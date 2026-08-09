@@ -1,7 +1,6 @@
 from datetime import datetime
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.models.email_ingestion import EmailIngestion
@@ -60,13 +59,20 @@ async def test_email_ingestion_message_id_unique(db):
 
     with pytest.raises(IntegrityError):
         await db.commit()
+    await db.rollback()
 
 
-async def test_ticket_reply_email_message_id(db, open_ticket, agent_auth_headers):
-    result = await db.execute(
-        select(User).where(User.username == "agent_test")
+async def test_ticket_reply_email_message_id(db, open_ticket):
+    agent = User(
+        username="agent_test",
+        email="agent_test@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role="agent",
+        is_active=True,
     )
-    agent = result.scalar_one()
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
 
     reply = TicketReply(
         ticket_id=open_ticket.id,
@@ -81,11 +87,17 @@ async def test_ticket_reply_email_message_id(db, open_ticket, agent_auth_headers
     assert reply.email_message_id == "reply-001@example.com"
 
 
-async def test_ticket_reply_email_message_id_unique(db, open_ticket, agent_auth_headers):
-    result = await db.execute(
-        select(User).where(User.username == "agent_test")
+async def test_ticket_reply_email_message_id_unique(db, open_ticket):
+    agent = User(
+        username="agent_test",
+        email="agent_test@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role="agent",
+        is_active=True,
     )
-    agent = result.scalar_one()
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
 
     reply1 = TicketReply(
         ticket_id=open_ticket.id,
@@ -105,3 +117,4 @@ async def test_ticket_reply_email_message_id_unique(db, open_ticket, agent_auth_
 
     with pytest.raises(IntegrityError):
         await db.commit()
+    await db.rollback()
