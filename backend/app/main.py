@@ -19,12 +19,14 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时创建默认管理员
+    # 启动时创建默认管理员和邮件默认分类
     from app.services.auth_service import create_default_admin
+    from app.services.email_service import ensure_default_email_category
 
     async with AsyncSessionLocal() as db:
         try:
             await create_default_admin(db)
+            await ensure_default_email_category(db)
         except Exception:
             await db.rollback()
     yield

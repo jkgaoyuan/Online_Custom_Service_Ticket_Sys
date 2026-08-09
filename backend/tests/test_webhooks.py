@@ -794,3 +794,79 @@ async def test_admin_reject_nonexistent_returns_404(db, async_client, admin_auth
         headers=admin_auth_headers,
     )
     assert response.status_code == 404
+
+
+# ===== Additional coverage from Task 5 brief =====
+
+
+@pytest.mark.asyncio
+async def test_webhook_known_sender_creates_ticket(db, async_client):
+    user = await _email_user(db, "webhook_known_sender")
+    payload = {
+        "message_id": "msg-webhook-known@test",
+        "from_address": user.email,
+        "to_address": "support@example.com",
+        "subject": "Webhook new problem",
+        "text_body": "Details here",
+    }
+    response = await async_client.post(
+        "/api/v1/webhooks/email",
+        json=payload,
+        headers={"Authorization": "Bearer webhook-secret-change-me"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+    result = await db.execute(
+        select(Ticket).where(Ticket.email_message_id == "msg-webhook-known@test")
+    )
+    ticket = result.scalar_one_or_none()
+    assert ticket is not None
+    assert ticket.requester_id == user.id
+    assert ticket.source == "email"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_message_id_idempotent_for_replies(db):
+    from sqlalchemy.exc import IntegrityError
+
+    user = await _email_user(db, "dup_reply_user")
+    inbound_ticket = InboundEmail(
+        message_id="parent-dup-msg@test",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Parent ticket",
+        text_body="Parent body",
+    )
+    ticket = await process_inbound_email(db, inbound_ticket)
+    assert isinstance(ticket, Ticket)
+
+    inbound_reply = InboundEmail(
+        message_id="dup-reply-msg@test",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: Parent ticket",
+        text_body="Reply body",
+        in_reply_to="parent-dup-msg@test",
+    )
+    reply = await process_inbound_email(db, inbound_reply)
+    assert isinstance(reply, TicketReply)
+    assert reply.ticket_id == ticket.id
+
+    # Second processing with the same reply message_id violates TicketReply.email_message_id unique constraint
+    with pytest.raises(IntegrityError):
+        await process_inbound_email(db, inbound_reply)
+        await db.commit()
+    await db.rollback()
+
+
+def test_extract_ticket_no_various_prefixes():
+    assert (
+        extract_ticket_no_from_subject("[Support] Re: TK-20260101-0001 help")
+        == "TK-20260101-0001"
+    )
+    assert extract_ticket_no_from_subject("Fwd: TK-20260101-0002") == "TK-20260101-0002"
+    assert (
+        extract_ticket_no_from_subject("FW: [Bug] TK-20260101-0003 issue")
+        == "TK-20260101-0003"
+    )
