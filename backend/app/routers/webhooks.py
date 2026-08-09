@@ -27,14 +27,14 @@ router = APIRouter()
 def verify_bearer_token(authorization: str | None) -> bool:
     settings = get_settings()
     expected = f"Bearer {settings.WEBHOOK_SECRET}"
-    return authorization == expected
+    return secrets.compare_digest(authorization or "", expected)
 
 
-@router.post("/webhooks/email", status_code=status.HTTP_200_OK)
+@router.post("/webhooks/email", status_code=status.HTTP_200_OK, response_model=None)
 async def receive_email_webhook(
     request: Request,
     authorization: str | None = Header(None, alias="Authorization"),
-) -> dict:
+) -> dict | JSONResponse:
     if not verify_bearer_token(authorization):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 

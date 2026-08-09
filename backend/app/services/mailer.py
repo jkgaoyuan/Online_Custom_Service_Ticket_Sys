@@ -1,4 +1,5 @@
 import logging
+from email.message import EmailMessage
 
 from app.config import get_settings
 
@@ -24,14 +25,19 @@ class Mailer:
             return
 
         settings = get_settings()
+        sender = settings.EMAIL_FROM or settings.SMTP_USER
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = sender
+        message["To"] = to
+        message.set_content(body)
         await aiosmtplib.send(
-            message=body,
-            sender=settings.EMAIL_FROM or settings.SMTP_USER,
+            message=message,
+            sender=sender,
             recipients=[to],
             hostname=settings.SMTP_HOST,
             port=settings.SMTP_PORT,
             username=settings.SMTP_USER,
             password=settings.SMTP_PASSWORD,
             start_tls=settings.SMTP_TLS,
-            subject=subject,
         )

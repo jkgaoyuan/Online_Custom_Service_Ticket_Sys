@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from celery import shared_task
+from sqlalchemy.exc import IntegrityError
 
 from app.database import AsyncSessionLocal
 from app.schemas.email_webhook import InboundEmail
@@ -22,6 +23,11 @@ async def _async_process(payload: dict) -> None:
         try:
             await process_inbound_email(db, inbound)
             await db.commit()
+        except IntegrityError:
+            logger.warning(
+                "Duplicate inbound email ignored: message_id=%s", inbound.message_id
+            )
+            await db.rollback()
         except Exception:
             logger.exception("Failed to process inbound email: %s", inbound.message_id)
             await db.rollback()

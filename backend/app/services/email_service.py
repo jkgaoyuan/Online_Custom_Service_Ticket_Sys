@@ -30,7 +30,7 @@ def html_to_text(html_body: str | None) -> str:
 
 def _get_body(inbound: InboundEmail) -> str:
     """Return the best available plain-text body for the inbound email."""
-    return inbound.text_body or html_to_text(inbound.html_body) or ""
+    return inbound.text_body if inbound.text_body is not None else html_to_text(inbound.html_body)
 
 
 def extract_ticket_no_from_subject(subject: str) -> str | None:
@@ -47,6 +47,8 @@ def extract_ticket_no_from_subject(subject: str) -> str | None:
 
 
 async def ensure_default_email_category(db: AsyncSession) -> Category:
+    # Self-contained setup helper: commits its own row because it may be called
+    # from lifespan or other contexts where an outer transaction is not guaranteed.
     result = await db.execute(select(Category).where(Category.code == "email"))
     cat = result.scalar_one_or_none()
     if cat:
@@ -107,7 +109,7 @@ async def create_ticket_from_email(
     )
     ticket = await create_ticket(db, data, user_id)
     ticket.email_message_id = inbound.message_id
-    await db.commit()
+    await db.flush()
     await db.refresh(ticket)
     return ticket
 
@@ -124,7 +126,7 @@ async def create_reply_from_email(
         email_message_id=inbound.message_id,
     )
     db.add(reply)
-    await db.commit()
+    await db.flush()
     await db.refresh(reply)
     return reply
 
@@ -142,7 +144,7 @@ async def enqueue_moderation(
         in_reply_to=inbound.in_reply_to,
     )
     db.add(ingestion)
-    await db.commit()
+    await db.flush()
     await db.refresh(ingestion)
     return ingestion
 

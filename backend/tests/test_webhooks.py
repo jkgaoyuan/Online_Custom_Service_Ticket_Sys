@@ -430,6 +430,51 @@ async def test_process_inbound_email_known_sender_creates_reply(db):
 
 
 @pytest.mark.asyncio
+async def test_reply_to_closed_ticket_does_not_reopen(db):
+    user = await _email_user(db, "closed_reply_user")
+    category = Category(name="故障", code="bug_closed", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+
+    from app.schemas.ticket import TicketCreate
+    from app.services.ticket_service import create_ticket
+
+    ticket = await create_ticket(
+        db,
+        TicketCreate(
+            title="Original closed",
+            description="Desc",
+            category_id=category.id,
+            priority="P2",
+            source="web",
+        ),
+        user.id,
+    )
+    ticket.email_message_id = "orig-closed-msg@example.com"
+    ticket.status = "closed"
+    await db.commit()
+    await db.refresh(ticket)
+
+    inbound = InboundEmail(
+        message_id="reply-closed@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: your ticket",
+        text_body="Reply to closed",
+        in_reply_to="orig-closed-msg@example.com",
+    )
+    reply = await process_inbound_email(db, inbound)
+    assert isinstance(reply, TicketReply)
+    assert reply.ticket_id == ticket.id
+
+    await db.commit()
+    result = await db.execute(select(Ticket).where(Ticket.id == ticket.id))
+    updated_ticket = result.scalar_one()
+    assert updated_ticket.status == "closed"
+
+
+@pytest.mark.asyncio
 async def test_process_inbound_email_domain_not_allowed(db, monkeypatch):
     def _settings():
         return Settings(EMAIL_ALLOWED_DOMAINS=["allowed.com"])
