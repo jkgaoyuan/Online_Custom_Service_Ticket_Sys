@@ -153,3 +153,42 @@ async def test_invalid_granularity_raises_error(db):
         assert False, "Expected exception"
     except DuplicateException as e:
         assert "granularity" in e.message.lower() or "day" in e.message
+
+
+# API-RPT-301: customer cannot access reports (403)
+async def test_customer_access_reports_403(client, customer_auth_headers):
+    r = await client.get("/api/v1/admin/reports/overview", headers=customer_auth_headers)
+    assert r.status_code == 403
+
+
+# API-RPT-302: agent cannot access reports (403)
+async def test_agent_access_reports_403(client, agent_auth_headers):
+    r = await client.get("/api/v1/admin/reports/overview", headers=agent_auth_headers)
+    assert r.status_code == 403
+
+
+# API-RPT-202: start_date after end_date returns 422
+async def test_start_date_after_end_date_422(client, admin_auth_headers):
+    r = await client.get(
+        "/api/v1/admin/reports/agent-performance?start_date=2026-08-10&end_date=2026-08-01",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 422
+
+
+# API-RPT-203: date range exceeds one year returns 422
+async def test_date_range_exceeds_one_year_422(client, admin_auth_headers):
+    r = await client.get(
+        "/api/v1/admin/reports/agent-performance?start_date=2024-01-01&end_date=2026-01-01",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 422
+
+
+# API-RPT-204: invalid granularity returns 422
+async def test_invalid_granularity_422(client, admin_auth_headers):
+    r = await client.get(
+        "/api/v1/admin/reports/trend?granularity=hour",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 422
