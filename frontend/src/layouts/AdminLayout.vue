@@ -6,6 +6,10 @@
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+        <el-menu-item index="2" @click="$router.push('/admin/reports')">
+          <el-icon><TrendCharts /></el-icon>
+          <span>数据报表</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -16,6 +20,10 @@
     </el-container>
   </el-container>
 </template>
+
+<script setup>
+import { TrendCharts, UserFilled } from '@element-plus/icons-vue'
+</script>
 
 <style scoped>
 .layout-container {

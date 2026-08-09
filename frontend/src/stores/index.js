@@ -60,3 +60,4 @@ export const useAuthStore = defineStore('auth', () => {
 
 export { useTicketsStore } from './tickets'
 export { useDispatchStore } from './dispatch'
+export { useReportsStore } from './reports'
