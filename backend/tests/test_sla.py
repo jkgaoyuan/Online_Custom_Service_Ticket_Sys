@@ -327,3 +327,23 @@ async def test_ticket_detail_includes_sla_summary(client, customer_auth_headers,
     assert "ticket_id" not in data["sla"]
     assert "first_resp_hours" not in data["sla"]
 
+
+# API-SLA-208: closed ticket retains SLA record with resolved_at
+async def test_closed_ticket_sla_exists(db):
+    customer = await _create_user(db, "closed_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db, "Closed Ticket", "Desc", category.id, customer.id, status="in_progress"
+    )
+
+    ticket = await transition_ticket_status(db, ticket, "resolved")
+    assert ticket.resolved_at is not None
+
+    ticket = await transition_ticket_status(db, ticket, "closed")
+    assert ticket.closed_at is not None
+
+    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
+    sla = result.scalar_one_or_none()
+    assert sla is not None
+    assert sla.resolved_at is not None
+

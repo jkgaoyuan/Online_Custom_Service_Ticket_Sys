@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.models.notification import Notification
 from app.models.sla_record import SLARecord
-from app.tasks.sla_tasks import _scan_first_resp
+from app.tasks.sla_tasks import _async_scan, _scan_first_resp
 from tests.conftest import _create_user, _create_category, _create_ticket
 
 
@@ -187,3 +187,27 @@ async def test_scan_no_duplicate_notification(db):
     )
     notifs = result.scalars().all()
     assert len(notifs) == 1
+
+
+async def test_resolved_ticket_no_resolution_breach(db):
+    customer = await _create_user(db, "cust_resolved", "customer")
+    agent = await _create_user(db, "agent_resolved", "agent")
+    category = await _create_category(db)
+    ticket = await _create_ticket(
+        db, "Resolved No Breach", "Desc", category.id, customer.id, assignee_id=agent.id
+    )
+
+    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket.id))
+    sla = result.scalar_one()
+
+    now = datetime.utcnow()
+    sla.resolved_at = now - timedelta(hours=1)
+    sla.resolution_due = now - timedelta(hours=2)
+    await db.commit()
+
+    await _async_scan()
+
+    result = await db.execute(select(SLARecord).where(SLARecord.id == sla.id))
+    updated = result.scalar_one()
+    assert updated.resolution_breached is False
+    assert updated.resolved_at is not None
