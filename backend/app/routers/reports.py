@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
-from app.exceptions import TicketSystemException
 from app.schemas.report import (
     AgentPerformanceResponse,
     CategoryDistributionResponse,
@@ -25,6 +24,7 @@ from app.services.report_service import (
     get_overview,
     get_satisfaction_stats,
     get_trend,
+    validate_date_range,
 )
 from app.tasks.export_tasks import generate_report_export
 
@@ -93,6 +93,8 @@ async def create_export(
     req: ExportRequest,
     _=Depends(require_role("admin", "supervisor")),
 ):
+    if req.start_date and req.end_date:
+        validate_date_range(req.start_date.isoformat(), req.end_date.isoformat())
     task_id = str(uuid.uuid4())
     generate_report_export.delay(
         task_id=task_id,

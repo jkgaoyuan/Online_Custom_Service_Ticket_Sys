@@ -12,6 +12,8 @@ from app.models.user import User
 
 
 MAX_DATE_RANGE_DAYS = 365
+SATISFACTION_SCORES = {"satisfied": 5, "neutral": 3, "dissatisfied": 1}
+INTERVALS = {"day": "1 day", "week": "1 week", "month": "1 month"}
 
 
 def validate_date_range(start_date: str | None, end_date: str | None) -> tuple[datetime, datetime]:
@@ -74,7 +76,6 @@ async def get_overview(db: AsyncSession) -> dict:
     )
     sat_count = sat_result.scalar() or 0
 
-    sat_scores = {"satisfied": 5, "neutral": 3, "dissatisfied": 1}
     score_sum = 0
     sat_details = await db.execute(
         select(Ticket.satisfaction, func.count(Ticket.id))
@@ -84,7 +85,7 @@ async def get_overview(db: AsyncSession) -> dict:
     sat_distribution = {}
     for row in sat_details.all():
         sat_distribution[row[0]] = row[1]
-        score_sum += sat_scores.get(row[0], 0) * row[1]
+        score_sum += SATISFACTION_SCORES.get(row[0], 0) * row[1]
 
     avg_satisfaction = (score_sum / sat_count) if sat_count > 0 else 0.0
 
@@ -159,11 +160,10 @@ async def get_satisfaction_stats(
     distribution = {}
     score_sum = 0
     total_rated = 0
-    scores = {"satisfied": 5, "neutral": 3, "dissatisfied": 1}
     for row in sat_details.all():
         distribution[row[0]] = row[1]
         total_rated += row[1]
-        score_sum += scores.get(row[0], 0) * row[1]
+        score_sum += SATISFACTION_SCORES.get(row[0], 0) * row[1]
 
     avg_score = (score_sum / total_rated) if total_rated > 0 else 0.0
     participation_rate = (total_rated / total_in_range) if total_in_range > 0 else 0.0
@@ -269,13 +269,14 @@ async def get_trend(
 
     start, end = validate_date_range(start_date, end_date)
 
-    sql = text(f"""
+    interval = INTERVALS[granularity]
+    sql = text("""
         WITH buckets AS (
             SELECT CAST(DATE_TRUNC(:granularity, gs) AS DATE) AS bucket
             FROM generate_series(
                 CAST(:start_dt AS TIMESTAMP),
                 CAST(:end_dt AS TIMESTAMP),
-                INTERVAL '1 {granularity}'
+                INTERVAL '""" + interval + """'
             ) AS gs
         ),
         created_counts AS (
