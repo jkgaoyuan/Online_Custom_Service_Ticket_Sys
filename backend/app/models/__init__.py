@@ -2,6 +2,8 @@ from app.models.agent_skill import AgentSkill
 from app.models.category import Category
 from app.models.dispatch_log import DispatchLog
 from app.models.email_ingestion import EmailIngestion
+from app.models.notification import Notification
+from app.models.sla_record import SLARecord
 from app.models.user import User
 from app.models.ticket import Ticket
 from app.models.ticket_reply import TicketReply

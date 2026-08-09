@@ -11,6 +11,8 @@ from app.models import (  # noqa: F401
     agent_skill,
     category,
     email_ingestion,
+    notification,
+    sla_record,
     ticket,
     ticket_reply,
     user,
