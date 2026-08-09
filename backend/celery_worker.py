@@ -11,6 +11,7 @@ celery_app = Celery(
         "app.tasks.sla_tasks",
         "app.tasks.notify_tasks",
         "app.tasks.export_tasks",
+        "app.tasks.email_tasks",
     ],
 )
 

@@ -1,9 +1,12 @@
 from datetime import datetime
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import Settings
+from app.main import app
 from app.models.category import Category
 from app.models.email_ingestion import EmailIngestion
 from app.models.ticket import Ticket
@@ -23,6 +26,34 @@ from app.services.email_service import (
 )
 from app.services.mailer import Mailer
 from app.utils.security import get_password_hash
+
+client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def eager_email_task(monkeypatch):
+    """Run inbound email Celery tasks synchronously during tests."""
+    import threading
+
+    try:
+        from app.tasks import email_tasks
+    except ImportError:
+        yield
+        return
+
+    original_delay = email_tasks.process_inbound_email_task.delay
+
+    def _run_sync(payload: dict) -> None:
+        def target() -> None:
+            email_tasks.process_inbound_email_task(payload)
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        thread.join(timeout=10)
+
+    monkeypatch.setattr(email_tasks.process_inbound_email_task, "delay", _run_sync)
+    yield
+    monkeypatch.setattr(email_tasks.process_inbound_email_task, "delay", original_delay)
 
 
 async def test_email_ingestion_defaults_and_relationships(db):
@@ -147,16 +178,12 @@ async def test_ticket_reply_email_message_id_unique(db, open_ticket):
 
 
 def test_extract_ticket_no_from_subject_exact():
-    assert (
-        extract_ticket_no_from_subject("Problem with TK-20260809-0001")
-        == "TK-20260809-0001"
-    )
+    assert extract_ticket_no_from_subject("Problem with TK-20260809-0001") == "TK-20260809-0001"
 
 
 def test_extract_ticket_no_from_subject_with_re_prefix():
     assert (
-        extract_ticket_no_from_subject("Re: [Support] TK-20260809-0002 issue")
-        == "TK-20260809-0002"
+        extract_ticket_no_from_subject("Re: [Support] TK-20260809-0002 issue") == "TK-20260809-0002"
     )
 
 
@@ -503,3 +530,267 @@ async def test_enqueue_moderation_uses_plain_text_from_html(db):
     )
     ingestion = await enqueue_moderation(db, inbound)
     assert ingestion.body == "Please help"
+
+
+# ===== Webhook Router Tests =====
+
+
+def test_webhook_missing_auth_returns_401():
+    response = client.post("/api/v1/webhooks/email", json={})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Unauthorized"
+
+
+def test_webhook_invalid_token_returns_401():
+    response = client.post(
+        "/api/v1/webhooks/email",
+        json={
+            "message_id": "msg-002@test",
+            "from_address": "a@example.com",
+            "to_address": "support@example.com",
+            "subject": "Test",
+        },
+        headers={"Authorization": "Bearer wrong-secret"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_unknown_sender_creates_moderation(db):
+    payload = {
+        "message_id": "msg-001@test",
+        "from_address": "unknown@example.com",
+        "to_address": "support@example.com",
+        "subject": "Help needed",
+        "text_body": "I have a problem",
+    }
+    response = client.post(
+        "/api/v1/webhooks/email",
+        json=payload,
+        headers={"Authorization": "Bearer webhook-secret-change-me"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+    result = await db.execute(
+        select(EmailIngestion).where(EmailIngestion.message_id == "msg-001@test")
+    )
+    ingestion = result.scalar_one_or_none()
+    assert ingestion is not None
+    assert ingestion.status == "pending"
+    assert ingestion.sender_email == "unknown@example.com"
+
+
+def test_webhook_swallows_invalid_payload_returns_200():
+    response = client.post(
+        "/api/v1/webhooks/email",
+        json={"not_a_valid_payload": True},
+        headers={"Authorization": "Bearer webhook-secret-change-me"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+# ===== Admin Moderation API Tests =====
+
+
+@pytest.mark.asyncio
+async def test_admin_list_email_ingestion_requires_auth(db, async_client):
+    response = await async_client.get("/api/v1/admin/email-ingestion")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_list_email_ingestion(db, async_client, admin_auth_headers):
+    ingestion = EmailIngestion(
+        sender_email="sender@example.com",
+        subject="Subject",
+        body="Body",
+        message_id="list-msg@example.com",
+        status="pending",
+    )
+    db.add(ingestion)
+    await db.commit()
+
+    response = await async_client.get(
+        "/api/v1/admin/email-ingestion?status_filter=pending",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert any(item["message_id"] == "list-msg@example.com" for item in data)
+
+
+@pytest.mark.asyncio
+async def test_supervisor_can_list_email_ingestion(db, async_client, supervisor_auth_headers):
+    ingestion = EmailIngestion(
+        sender_email="sender2@example.com",
+        subject="Subject",
+        body="Body",
+        message_id="list-msg-2@example.com",
+        status="pending",
+    )
+    db.add(ingestion)
+    await db.commit()
+
+    response = await async_client.get(
+        "/api/v1/admin/email-ingestion",
+        headers=supervisor_auth_headers,
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_customer_cannot_access_admin_email_ingestion(
+    db, async_client, customer_auth_headers
+):
+    response = await async_client.get(
+        "/api/v1/admin/email-ingestion",
+        headers=customer_auth_headers,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_email_ingestion(db, async_client, admin_auth_headers):
+    ingestion = EmailIngestion(
+        sender_email="approve@example.com",
+        sender_name="Approver",
+        subject="Approve me",
+        body="I need a ticket",
+        message_id="approve-msg@example.com",
+        status="pending",
+    )
+    db.add(ingestion)
+    await db.commit()
+    await db.refresh(ingestion)
+
+    response = await async_client.post(
+        f"/api/v1/admin/email-ingestion/{ingestion.id}/approve",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "approved"
+    assert data["user_id"] is not None
+    assert data["ticket_id"] is not None
+
+    result = await db.execute(select(EmailIngestion).where(EmailIngestion.id == ingestion.id))
+    updated = result.scalar_one()
+    await db.refresh(updated)
+    assert updated.status == "approved"
+    assert updated.created_user_id == data["user_id"]
+    assert updated.ticket_id == data["ticket_id"]
+
+    user_result = await db.execute(select(User).where(User.id == data["user_id"]))
+    user = user_result.scalar_one()
+    assert user.email == "approve@example.com"
+    assert user.role == "customer"
+
+    ticket_result = await db.execute(select(Ticket).where(Ticket.id == data["ticket_id"]))
+    ticket = ticket_result.scalar_one()
+    await db.refresh(ticket)
+    assert ticket.title == "Approve me"
+    assert ticket.source == "email"
+    assert ticket.email_message_id == "approve-msg@example.com"
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_email_ingestion_username_conflict(
+    db, async_client, admin_auth_headers
+):
+    existing = User(
+        username="conflict",
+        email="other@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role="customer",
+        is_active=True,
+    )
+    db.add(existing)
+    await db.commit()
+
+    ingestion = EmailIngestion(
+        sender_email="conflict@example.com",
+        subject="Conflict",
+        body="Body",
+        message_id="conflict-msg@example.com",
+        status="pending",
+    )
+    db.add(ingestion)
+    await db.commit()
+    await db.refresh(ingestion)
+
+    response = await async_client.post(
+        f"/api/v1/admin/email-ingestion/{ingestion.id}/approve",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 200
+
+    result = await db.execute(select(User).where(User.email == "conflict@example.com"))
+    user = result.scalar_one()
+    assert user.username != "conflict"
+    assert user.username.startswith("conflict_")
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_nonexistent_returns_404(db, async_client, admin_auth_headers):
+    response = await async_client.post(
+        "/api/v1/admin/email-ingestion/99999/approve",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_already_processed_returns_409(db, async_client, admin_auth_headers):
+    ingestion = EmailIngestion(
+        sender_email="processed@example.com",
+        subject="Processed",
+        body="Body",
+        message_id="processed-msg@example.com",
+        status="approved",
+    )
+    db.add(ingestion)
+    await db.commit()
+    await db.refresh(ingestion)
+
+    response = await async_client.post(
+        f"/api/v1/admin/email-ingestion/{ingestion.id}/approve",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_admin_reject_email_ingestion(db, async_client, admin_auth_headers):
+    ingestion = EmailIngestion(
+        sender_email="reject@example.com",
+        subject="Reject me",
+        body="Body",
+        message_id="reject-msg@example.com",
+        status="pending",
+    )
+    db.add(ingestion)
+    await db.commit()
+    await db.refresh(ingestion)
+
+    response = await async_client.post(
+        f"/api/v1/admin/email-ingestion/{ingestion.id}/reject",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+
+    result = await db.execute(select(EmailIngestion).where(EmailIngestion.id == ingestion.id))
+    updated = result.scalar_one()
+    await db.refresh(updated)
+    assert updated.status == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_admin_reject_nonexistent_returns_404(db, async_client, admin_auth_headers):
+    response = await async_client.post(
+        "/api/v1/admin/email-ingestion/99999/reject",
+        headers=admin_auth_headers,
+    )
+    assert response.status_code == 404
