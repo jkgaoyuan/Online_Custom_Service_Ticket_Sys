@@ -223,3 +223,107 @@ async def test_reopen_clears_resolved_at(db):
     sla = result.scalar_one_or_none()
     assert sla is not None
     assert sla.resolved_at is None
+
+
+# ===== Task 5: SLA Query API and Embedding =====
+
+# API-SLA-301: GET /api/v1/tickets/{id}/sla returns 200 with correct fields
+async def test_api_get_ticket_sla(client, customer_auth_headers, db):
+    customer = await _create_user(db, "sla_api_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "SLA API Ticket", "Desc", category.id, customer.id)
+
+    # Get token for the ticket owner
+    from app.services.auth_service import create_access_token
+    token = await create_access_token(customer.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = await client.get(f"/api/v1/tickets/{ticket.id}/sla", headers=headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ticket_id"] == ticket.id
+    assert data["priority"] == "P2"
+    assert "first_resp_hours" in data
+    assert "resolution_hours" in data
+    assert "first_resp_due" in data
+    assert "resolution_due" in data
+    assert "first_resp_breached" in data
+    assert "resolution_breached" in data
+
+
+# API-SLA-302: customer cannot access another customer's ticket SLA (403)
+async def test_api_get_ticket_sla_forbidden(client, customer_auth_headers, db):
+    another_customer = await _create_user(db, "another_sla_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "Private SLA", "Desc", category.id, another_customer.id)
+
+    r = await client.get(f"/api/v1/tickets/{ticket.id}/sla", headers=customer_auth_headers)
+    assert r.status_code == 403
+    assert r.json()["detail"] == "无权访问该工单"
+
+
+# API-SLA-303: admin GET /api/v1/admin/sla/overdue returns breached SLAs
+async def test_api_admin_overdue_list(client, admin_auth_headers, db):
+    customer = await _create_user(db, "overdue_customer", "customer")
+    category = await _create_category(db)
+    ticket1 = await _create_ticket(db, "Overdue 1", "Desc", category.id, customer.id)
+    ticket2 = await _create_ticket(db, "Overdue 2", "Desc", category.id, customer.id)
+    ticket3 = await _create_ticket(db, "Normal 3", "Desc", category.id, customer.id)
+
+    # Manually mark SLAs as breached
+    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket1.id))
+    sla1 = result.scalar_one()
+    sla1.first_resp_breached = True
+
+    result = await db.execute(select(SLARecord).where(SLARecord.ticket_id == ticket2.id))
+    sla2 = result.scalar_one()
+    sla2.resolution_breached = True
+
+    await db.commit()
+
+    r = await client.get("/api/v1/admin/sla/overdue", headers=admin_auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) >= 2
+    ticket_ids = [item["ticket_id"] for item in data]
+    assert ticket1.id in ticket_ids
+    assert ticket2.id in ticket_ids
+    assert ticket3.id not in ticket_ids
+
+    # Filter by first_resp
+    r = await client.get("/api/v1/admin/sla/overdue?breach_type=first_resp", headers=admin_auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert all(item["first_resp_breached"] for item in data)
+
+    # Filter by resolution
+    r = await client.get("/api/v1/admin/sla/overdue?breach_type=resolution", headers=admin_auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert all(item["resolution_breached"] for item in data)
+
+
+# API-SLA-304: GET /api/v1/tickets/{id} includes sla field
+async def test_ticket_detail_includes_sla_summary(client, customer_auth_headers, db):
+    customer = await _create_user(db, "detail_sla_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "Detail SLA", "Desc", category.id, customer.id)
+
+    # Get token for the ticket owner
+    from app.services.auth_service import create_access_token
+    token = await create_access_token(customer.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert "sla" in data
+    assert data["sla"] is not None
+    assert "first_resp_due" in data["sla"]
+    assert "resolution_due" in data["sla"]
+    assert "first_resp_breached" in data["sla"]
+    assert "resolution_breached" in data["sla"]
+    # SLASummary should NOT include ticket_id or hours
+    assert "ticket_id" not in data["sla"]
+    assert "first_resp_hours" not in data["sla"]
+

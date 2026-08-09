@@ -6,6 +6,7 @@ from app.dependencies import get_current_user, require_role
 from app.exceptions import NotFoundException, PermissionDeniedException
 from app.models.ticket import Ticket
 from app.models.user import User
+from app.schemas.sla import SLASummary
 from app.schemas.ticket import (
     AssignRequest,
     StatusUpdateRequest,
@@ -23,6 +24,7 @@ from app.services.ticket_service import (
 )
 from app.services.reply_service import create_reply, get_replies_by_ticket
 from app.services.dispatch_service import auto_assign, log_manual_assign
+from app.services.sla_service import get_sla_record_by_ticket_id
 
 router = APIRouter()
 
@@ -89,7 +91,12 @@ async def get_ticket(
     if not ticket:
         raise NotFoundException("工单不存在")
     await check_ticket_access(ticket, current_user)
-    return ticket
+
+    sla = await get_sla_record_by_ticket_id(db, ticket_id)
+    response = TicketResponse.model_validate(ticket)
+    if sla:
+        response.sla = SLASummary.model_validate(sla)
+    return response
 
 
 @router.post("/tickets/{ticket_id}/replies", response_model=ReplyResponse, status_code=status.HTTP_201_CREATED)

@@ -4,6 +4,9 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+from app.schemas.sla import SLASummary
+
+
 class TicketBase(BaseModel):
     title: str = Field(..., max_length=200)
     description: str = Field(...)
@@ -40,6 +43,7 @@ class TicketResponse(BaseModel):
     updated_at: datetime
     resolved_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    sla: Optional[SLASummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 
