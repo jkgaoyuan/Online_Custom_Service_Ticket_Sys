@@ -1,9 +1,9 @@
 from datetime import datetime
-from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.config import Settings
 from app.models.category import Category
 from app.models.email_ingestion import EmailIngestion
 from app.models.ticket import Ticket
@@ -403,20 +403,21 @@ async def test_process_inbound_email_known_sender_creates_reply(db):
 
 
 @pytest.mark.asyncio
-async def test_process_inbound_email_domain_not_allowed(db):
-    allowed_settings = MagicMock()
-    allowed_settings.EMAIL_ALLOWED_DOMAINS = ["allowed.com"]
+async def test_process_inbound_email_domain_not_allowed(db, monkeypatch):
+    def _settings():
+        return Settings(EMAIL_ALLOWED_DOMAINS=["allowed.com"])
 
-    with patch("app.config.get_settings", return_value=allowed_settings):
-        inbound = InboundEmail(
-            message_id="reject-msg@example.com",
-            from_address="user@notallowed.com",
-            to_address="support@example.com",
-            subject="Help",
-            text_body="Description",
-        )
-        with pytest.raises(ValueError, match="not in allowlist"):
-            await process_inbound_email(db, inbound)
+    monkeypatch.setattr("app.config.get_settings", _settings)
+
+    inbound = InboundEmail(
+        message_id="reject-msg@example.com",
+        from_address="user@notallowed.com",
+        to_address="support@example.com",
+        subject="Help",
+        text_body="Description",
+    )
+    with pytest.raises(ValueError, match="not in allowlist"):
+        await process_inbound_email(db, inbound)
 
 
 # ===== HTML-to-text body handling =====

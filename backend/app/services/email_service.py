@@ -2,6 +2,7 @@ import html
 import re
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
@@ -57,9 +58,14 @@ async def ensure_default_email_category(db: AsyncSession) -> Category:
         default_priority="P2",
     )
     db.add(cat)
-    await db.commit()
-    await db.refresh(cat)
-    return cat
+    try:
+        await db.commit()
+        await db.refresh(cat)
+        return cat
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(select(Category).where(Category.code == "email"))
+        return result.scalar_one()
 
 
 async def match_ticket_by_email(
