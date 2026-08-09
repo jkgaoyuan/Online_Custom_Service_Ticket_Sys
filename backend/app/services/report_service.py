@@ -1,12 +1,14 @@
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DuplicateException
 from app.models.category import Category
 from app.models.sla_record import SLARecord
 from app.models.ticket import Ticket
+from app.models.ticket_reply import TicketReply
+from app.models.user import User
 
 
 MAX_DATE_RANGE_DAYS = 365
@@ -173,3 +175,68 @@ async def get_satisfaction_stats(
         "total_rated": total_rated,
         "total_in_range": total_in_range,
     }
+
+
+async def get_agent_performance(
+    db: AsyncSession, start_date: str | None, end_date: str | None
+) -> list[dict]:
+    start, end = validate_date_range(start_date, end_date)
+
+    # Assigned + resolved stats grouped by assignee
+    assigned_result = await db.execute(
+        select(
+            Ticket.assignee_id,
+            User.username,
+            func.count(Ticket.id),
+            func.sum(cast((Ticket.status == "resolved"), Integer)),
+            func.avg(
+                func.extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600
+            ),
+        )
+        .join(User, Ticket.assignee_id == User.id)
+        .where(
+            Ticket.created_at >= start,
+            Ticket.created_at <= end,
+            Ticket.assignee_id.isnot(None),
+        )
+        .group_by(Ticket.assignee_id, User.username)
+    )
+
+    assigned_rows = {row[0]: row for row in assigned_result.all()}
+
+    # First response stats from ticket_replies (earliest non-internal reply per ticket)
+    first_reply_result = await db.execute(
+        select(
+            TicketReply.author_id,
+            func.avg(
+                func.extract("epoch", TicketReply.created_at - Ticket.created_at) / 3600
+            ),
+        )
+        .select_from(TicketReply)
+        .join(Ticket, TicketReply.ticket_id == Ticket.id)
+        .where(
+            TicketReply.is_internal.is_(False),
+            Ticket.created_at >= start,
+            Ticket.created_at <= end,
+        )
+        .group_by(TicketReply.author_id)
+    )
+
+    first_reply_map = {row[0]: row[1] for row in first_reply_result.all()}
+
+    result = []
+    for agent_id, row in assigned_rows.items():
+        avg_resolution = row[4] if row[4] is not None else 0.0
+        avg_first_resp = first_reply_map.get(agent_id, 0.0)
+        if avg_first_resp is None:
+            avg_first_resp = 0.0
+        result.append({
+            "agent_id": agent_id,
+            "agent_name": row[1],
+            "total_assigned": row[2],
+            "resolved_count": row[3] or 0,
+            "avg_first_resp_hours": round(avg_first_resp, 2),
+            "avg_resolution_hours": round(avg_resolution, 2),
+        })
+
+    return sorted(result, key=lambda x: x["total_assigned"], reverse=True)

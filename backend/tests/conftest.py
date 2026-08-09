@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -134,6 +135,20 @@ async def _create_ticket(db, title, description, category_id, requester_id, stat
         ticket.status = status
         await db.commit()
         await db.refresh(ticket)
+    return ticket
+
+
+async def _create_resolved_ticket(
+    db, title, description, category_id, requester_id, assignee_id=None, satisfaction=None
+):
+    ticket = await _create_ticket(
+        db, title, description, category_id, requester_id,
+        status="resolved", assignee_id=assignee_id
+    )
+    ticket.resolved_at = datetime.utcnow()
+    ticket.satisfaction = satisfaction
+    await db.commit()
+    await db.refresh(ticket)
     return ticket
 
 
