@@ -827,7 +827,7 @@ async def test_webhook_known_sender_creates_ticket(db, async_client):
 
 
 @pytest.mark.asyncio
-async def test_duplicate_message_id_idempotent_for_replies(db):
+async def test_duplicate_message_id_raises_integrity_error_for_replies(db):
     from sqlalchemy.exc import IntegrityError
 
     user = await _email_user(db, "dup_reply_user")
