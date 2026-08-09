@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.config import get_settings
-from app.tasks.export_tasks import _async_generate_report_export
+from app.tasks.export_tasks import _async_generate_report_export, _sanitize_for_export
 from tests.conftest import _create_category, _create_ticket, _create_user
 
 
@@ -130,21 +130,15 @@ async def test_export_task_creates_csv_file(db):
     assert file_path.stat().st_size > 0
 
 
-async def test_export_task_sanitizes_formula_injection():
-    task_id = str(uuid.uuid4())
-    await _async_generate_report_export(
-        task_id=task_id,
-        report_type="overview",
-        format="csv",
-        start_date=None,
-        end_date=None,
-    )
-
-    settings = get_settings()
-    file_path = Path(settings.EXPORT_DIR) / f"{task_id}.csv"
-    content = file_path.read_text(encoding="utf-8")
-    # Should not contain raw formula triggers at start of cell
-    assert "=cmd" not in content
+def test_sanitize_for_export_directly():
+    """API-EXP-301: _sanitize_for_export prefixes formula triggers with apostrophe."""
+    assert _sanitize_for_export('=HYPERLINK("http://evil.com","click")') == "'=HYPERLINK(\"http://evil.com\",\"click\")"
+    assert _sanitize_for_export("+1+1") == "'+1+1"
+    assert _sanitize_for_export("-1-1") == "'-1-1"
+    assert _sanitize_for_export("@SUM(...)") == "'@SUM(...)"
+    assert _sanitize_for_export("normal text") == "normal text"
+    assert _sanitize_for_export(123) == 123
+    assert _sanitize_for_export(None) is None
 
 
 async def test_export_task_unknown_report_type_raises(db):
