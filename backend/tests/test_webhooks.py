@@ -1,11 +1,24 @@
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.models.category import Category
 from app.models.email_ingestion import EmailIngestion
+from app.models.ticket import Ticket
 from app.models.ticket_reply import TicketReply
 from app.models.user import User
+from app.schemas.email_webhook import InboundEmail
+from app.services.email_service import (
+    create_reply_from_email,
+    create_ticket_from_email,
+    enqueue_moderation,
+    ensure_default_email_category,
+    extract_ticket_no_from_subject,
+    match_ticket_by_email,
+    process_inbound_email,
+)
 from app.services.mailer import Mailer
 from app.utils.security import get_password_hash
 
@@ -126,3 +139,279 @@ async def test_ticket_reply_email_message_id_unique(db, open_ticket):
     with pytest.raises(IntegrityError):
         await db.commit()
     await db.rollback()
+
+
+# ===== Email Service Unit Tests =====
+
+
+def test_extract_ticket_no_from_subject_exact():
+    assert (
+        extract_ticket_no_from_subject("Problem with TK-20260809-0001")
+        == "TK-20260809-0001"
+    )
+
+
+def test_extract_ticket_no_from_subject_with_re_prefix():
+    assert (
+        extract_ticket_no_from_subject("Re: [Support] TK-20260809-0002 issue")
+        == "TK-20260809-0002"
+    )
+
+
+def test_extract_ticket_no_from_subject_no_match():
+    assert extract_ticket_no_from_subject("Just a random subject") is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_email_category_creates_when_missing(db):
+    from app.models.category import Category
+
+    cat = await ensure_default_email_category(db)
+    assert cat.code == "email"
+    # Second call should return existing
+    cat2 = await ensure_default_email_category(db)
+    assert cat2.id == cat.id
+
+
+async def _email_user(db, username="email_customer", role="customer"):
+    user = User(
+        username=username,
+        email=f"{username}@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role=role,
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@pytest.mark.asyncio
+async def test_match_ticket_by_email_in_reply_to(db):
+    user = await _email_user(db, "match_user")
+    category = Category(name="故障", code="bug_match", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+
+    from app.schemas.ticket import TicketCreate
+    from app.services.ticket_service import create_ticket
+
+    ticket = await create_ticket(
+        db,
+        TicketCreate(
+            title="Original",
+            description="Desc",
+            category_id=category.id,
+            priority="P2",
+            source="web",
+        ),
+        user.id,
+    )
+    ticket.email_message_id = "orig-msg@example.com"
+    await db.commit()
+    await db.refresh(ticket)
+
+    inbound = InboundEmail(
+        message_id="reply-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: your ticket",
+        text_body="Follow up",
+        in_reply_to="orig-msg@example.com",
+    )
+    matched = await match_ticket_by_email(db, inbound)
+    assert matched is not None
+    assert matched.id == ticket.id
+
+
+@pytest.mark.asyncio
+async def test_match_ticket_by_email_subject_ticket_no(db):
+    user = await _email_user(db, "match_user2")
+    category = Category(name="故障", code="bug_match2", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+
+    from app.schemas.ticket import TicketCreate
+    from app.services.ticket_service import create_ticket
+
+    ticket = await create_ticket(
+        db,
+        TicketCreate(
+            title="Original",
+            description="Desc",
+            category_id=category.id,
+            priority="P2",
+            source="web",
+        ),
+        user.id,
+    )
+    await db.refresh(ticket)
+
+    inbound = InboundEmail(
+        message_id="new-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject=f"Re: {ticket.ticket_no} issue",
+        text_body="Follow up",
+    )
+    matched = await match_ticket_by_email(db, inbound)
+    assert matched is not None
+    assert matched.id == ticket.id
+
+
+@pytest.mark.asyncio
+async def test_match_ticket_by_email_no_match(db):
+    user = await _email_user(db, "match_user3")
+    inbound = InboundEmail(
+        message_id="new-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="No ticket number",
+        text_body="Hello",
+    )
+    matched = await match_ticket_by_email(db, inbound)
+    assert matched is None
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_from_email(db):
+    user = await _email_user(db, "ticket_creator")
+    inbound = InboundEmail(
+        message_id="create-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="New ticket via email",
+        text_body="Description",
+    )
+    ticket = await create_ticket_from_email(db, inbound, user.id)
+    assert ticket.title == inbound.subject
+    assert ticket.description == inbound.text_body
+    assert ticket.source == "email"
+    assert ticket.email_message_id == inbound.message_id
+    assert ticket.category_id is not None
+
+
+@pytest.mark.asyncio
+async def test_create_reply_from_email(db, open_ticket):
+    user = await _email_user(db, "reply_creator")
+    inbound = InboundEmail(
+        message_id="reply-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: ticket",
+        text_body="Reply content",
+    )
+    reply = await create_reply_from_email(db, inbound, open_ticket, user.id)
+    assert reply.ticket_id == open_ticket.id
+    assert reply.author_id == user.id
+    assert reply.content == inbound.text_body
+    assert reply.email_message_id == inbound.message_id
+    assert reply.is_internal is False
+
+
+@pytest.mark.asyncio
+async def test_enqueue_moderation(db):
+    inbound = InboundEmail(
+        message_id="mod-msg@example.com",
+        from_address="unknown@example.com",
+        to_address="support@example.com",
+        subject="Moderation",
+        text_body="Please help",
+    )
+    ingestion = await enqueue_moderation(db, inbound)
+    assert ingestion.id is not None
+    assert ingestion.sender_email == "unknown@example.com"
+    assert ingestion.status == "pending"
+    assert ingestion.message_id == inbound.message_id
+    assert ingestion.body == inbound.text_body
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_email_unknown_sender_enqueue(db):
+    inbound = InboundEmail(
+        message_id="unknown-msg@example.com",
+        from_address="stranger@example.com",
+        to_address="support@example.com",
+        subject="Help",
+        text_body="I need help",
+    )
+    result = await process_inbound_email(db, inbound)
+    assert isinstance(result, EmailIngestion)
+    assert result.sender_email == "stranger@example.com"
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_email_known_sender_creates_ticket(db):
+    user = await _email_user(db, "known_sender")
+    inbound = InboundEmail(
+        message_id="known-msg@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Create ticket",
+        text_body="Description",
+    )
+    result = await process_inbound_email(db, inbound)
+    assert isinstance(result, Ticket)
+    assert result.requester_id == user.id
+    assert result.source == "email"
+    assert result.email_message_id == inbound.message_id
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_email_known_sender_creates_reply(db):
+    user = await _email_user(db, "known_sender2")
+    category = Category(name="故障", code="bug_reply", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+
+    from app.schemas.ticket import TicketCreate
+    from app.services.ticket_service import create_ticket
+
+    ticket = await create_ticket(
+        db,
+        TicketCreate(
+            title="Original",
+            description="Desc",
+            category_id=category.id,
+            priority="P2",
+            source="web",
+        ),
+        user.id,
+    )
+    ticket.email_message_id = "orig-msg@example.com"
+    await db.commit()
+    await db.refresh(ticket)
+
+    inbound = InboundEmail(
+        message_id="reply-process@example.com",
+        from_address=user.email,
+        to_address="support@example.com",
+        subject="Re: your ticket",
+        text_body="Reply content",
+        in_reply_to="orig-msg@example.com",
+    )
+    result = await process_inbound_email(db, inbound)
+    assert isinstance(result, TicketReply)
+    assert result.ticket_id == ticket.id
+    assert result.author_id == user.id
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_email_domain_not_allowed(db):
+    allowed_settings = MagicMock()
+    allowed_settings.EMAIL_ALLOWED_DOMAINS = ["allowed.com"]
+
+    with patch("app.config.get_settings", return_value=allowed_settings):
+        inbound = InboundEmail(
+            message_id="reject-msg@example.com",
+            from_address="user@notallowed.com",
+            to_address="support@example.com",
+            subject="Help",
+            text_body="Description",
+        )
+        with pytest.raises(ValueError, match="not in allowlist"):
+            await process_inbound_email(db, inbound)
