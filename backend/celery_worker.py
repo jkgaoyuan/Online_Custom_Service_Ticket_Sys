@@ -15,6 +15,13 @@ celery_app = Celery(
     ],
 )
 
+celery_app.conf.beat_schedule = {
+    "scan-sla-deadlines": {
+        "task": "tasks.scan_sla_deadlines",
+        "schedule": 300.0,
+    },
+}
+
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

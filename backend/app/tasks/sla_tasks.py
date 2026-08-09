@@ -1,0 +1,302 @@
+import asyncio
+import logging
+from datetime import datetime, timedelta
+
+from celery import shared_task
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from app.database import AsyncSessionLocal
+from app.models.sla_record import SLARecord
+from app.models.user import User
+from app.services.notification_service import create_notification
+
+logger = logging.getLogger(__name__)
+
+
+@shared_task(name="tasks.scan_sla_deadlines")
+def scan_sla_deadlines():
+    asyncio.run(_async_scan())
+
+
+async def _async_scan():
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as db:
+        supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
+        supervisor_ids = [r[0] for r in supervisors.all()]
+
+        try:
+            await _scan_first_resp(db, now, supervisor_ids)
+            await _scan_resolution(db, now, supervisor_ids)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+
+async def _scan_first_resp(db, now: datetime, supervisor_ids: list[int]):
+    # --- agent 3h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 3,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=3),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_agent_3h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "first_resp", stage="agent_3h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.first_resp_warned_agent_3h = True
+        except Exception:
+            logger.exception(
+                "Failed to send first_resp 3h warning for ticket %s", record.ticket_id
+            )
+
+    # --- agent 2h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 2,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=2),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_agent_2h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "first_resp", stage="agent_2h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.first_resp_warned_agent_2h = True
+        except Exception:
+            logger.exception(
+                "Failed to send first_resp 2h warning for ticket %s", record.ticket_id
+            )
+
+    # --- supervisor 1h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 1,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=1),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_supervisor_1h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "first_resp", stage="supervisor_1h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.first_resp_warned_supervisor_1h = True
+        except Exception:
+            logger.exception(
+                "Failed to send first_resp 1h warning for ticket %s", record.ticket_id
+            )
+
+    # --- breach ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_due <= now,
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_breached.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            await notify_sla_breach(
+                db, record, "first_resp", supervisor_ids=supervisor_ids
+            )
+            record.first_resp_breached = True
+        except Exception:
+            logger.exception(
+                "Failed to process first_resp breach for ticket %s", record.ticket_id
+            )
+
+
+async def _scan_resolution(db, now: datetime, supervisor_ids: list[int]):
+    # --- agent 3h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.resolution_hours > 3,
+            SLARecord.resolution_due > now,
+            SLARecord.resolution_due <= now + timedelta(hours=3),
+            SLARecord.resolved_at.is_(None),
+            SLARecord.resolution_warned_agent_3h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "resolution", stage="agent_3h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.resolution_warned_agent_3h = True
+        except Exception:
+            logger.exception(
+                "Failed to send resolution 3h warning for ticket %s", record.ticket_id
+            )
+
+    # --- agent 2h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.resolution_hours > 2,
+            SLARecord.resolution_due > now,
+            SLARecord.resolution_due <= now + timedelta(hours=2),
+            SLARecord.resolved_at.is_(None),
+            SLARecord.resolution_warned_agent_2h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "resolution", stage="agent_2h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.resolution_warned_agent_2h = True
+        except Exception:
+            logger.exception(
+                "Failed to send resolution 2h warning for ticket %s", record.ticket_id
+            )
+
+    # --- supervisor 1h warning ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.resolution_hours > 1,
+            SLARecord.resolution_due > now,
+            SLARecord.resolution_due <= now + timedelta(hours=1),
+            SLARecord.resolved_at.is_(None),
+            SLARecord.resolution_warned_supervisor_1h.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            sent = await notify_sla_warning(
+                db, record, "resolution", stage="supervisor_1h", supervisor_ids=supervisor_ids
+            )
+            if sent:
+                record.resolution_warned_supervisor_1h = True
+        except Exception:
+            logger.exception(
+                "Failed to send resolution 1h warning for ticket %s", record.ticket_id
+            )
+
+    # --- breach ---
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.resolution_due <= now,
+            SLARecord.resolved_at.is_(None),
+            SLARecord.resolution_breached.is_(False),
+        )
+        .with_for_update()
+    )
+    for record in (await db.execute(stmt)).scalars():
+        try:
+            await notify_sla_breach(
+                db, record, "resolution", supervisor_ids=supervisor_ids
+            )
+            record.resolution_breached = True
+        except Exception:
+            logger.exception(
+                "Failed to process resolution breach for ticket %s", record.ticket_id
+            )
+
+
+async def notify_sla_warning(
+    db,
+    sla: SLARecord,
+    breach_type: str,
+    stage: str,
+    supervisor_ids: list[int],
+) -> bool:
+    """Return True if at least one notification was created."""
+    ticket = sla.ticket
+    target_user_ids = set()
+
+    if stage in ("agent_3h", "agent_2h") and ticket.assignee_id:
+        target_user_ids.add(ticket.assignee_id)
+    elif stage == "supervisor_1h":
+        target_user_ids.update(supervisor_ids)
+
+    if not target_user_ids:
+        return False
+
+    stage_label = {"agent_3h": "3小时", "agent_2h": "2小时", "supervisor_1h": "1小时"}[stage]
+    type_label = "首次响应" if breach_type == "first_resp" else "解决"
+
+    for user_id in target_user_ids:
+        await create_notification(
+            db,
+            user_id=user_id,
+            type="sla_warning",
+            title=f"[预警] 工单 #{ticket.ticket_no} 即将超时",
+            message=f"{type_label}截止时间剩余不足 {stage_label}，请及时处理。",
+            data={
+                "ticket_id": ticket.id,
+                "sla_record_id": sla.id,
+                "stage": stage,
+                "type": breach_type,
+            },
+        )
+    return True
+
+
+async def notify_sla_breach(
+    db,
+    sla: SLARecord,
+    breach_type: str,
+    supervisor_ids: list[int],
+) -> None:
+    ticket = sla.ticket
+    target_user_ids = set()
+
+    if ticket.assignee_id:
+        target_user_ids.add(ticket.assignee_id)
+    target_user_ids.update(supervisor_ids)
+
+    if not target_user_ids:
+        return
+
+    type_label = "首次响应" if breach_type == "first_resp" else "解决"
+    hours = sla.first_resp_hours if breach_type == "first_resp" else sla.resolution_hours
+
+    for user_id in target_user_ids:
+        await create_notification(
+            db,
+            user_id=user_id,
+            type="sla_breach",
+            title=f"[超时] 工单 #{ticket.ticket_no} SLA 已超时",
+            message=f"{type_label}时间已超出规定时限（{hours} 小时）。",
+            data={"ticket_id": ticket.id, "sla_record_id": sla.id, "type": breach_type},
+        )
