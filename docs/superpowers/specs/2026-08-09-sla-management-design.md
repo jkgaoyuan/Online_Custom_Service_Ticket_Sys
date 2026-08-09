@@ -54,14 +54,17 @@
 | 主管通知范围 | 所有 `role='supervisor'` 用户 | MVP 简化，后续按管辖范围细化 |
 | 通知存储 | 全部写入 `notifications` 表 | 站内信为基础，邮件通道懒加载调用 Mailer |
 | 历史 SLA 保护 | 创建时快照小时数到 `sla_records` | 政策修改不影响历史工单 |
+| 工单重新打开 | `resolved → in_progress` 时清空 `resolved_at` | 保证重新激活的工单继续受 SLA 约束 |
+| 扫描行级锁 | `SELECT ... FOR UPDATE` 防止并发重复通知 | 避免竞态条件 |
+| 预警 flag 策略 | 通知成功发送后才置位 | 避免无收件人时永久丢失提醒机会 |
 
 ---
 
 ## 四、数据模型
 
-### 4.1 `categories.sla_config` 格式
+### 4.1 `categories.sla_config` 格式与迁移
 
-复用现有 `JSON` 字段，标准化为按优先级配置：
+复用现有 `JSONB` 字段，标准化为按优先级配置：
 
 ```json
 {
@@ -72,7 +75,11 @@
 }
 ```
 
-**Fallback 策略**：若分类的 `sla_config` 为空或缺少某优先级键，使用全局默认：
+**向后兼容与迁移策略**：
+现有 `Category` 的 Pydantic Schema 和数据库行可能仍使用旧版 flat 格式 `{"first_resp_hours": 4, "resolution_hours": 24}`。实施步骤：
+1. 更新 `CategoryCreate` / `CategoryUpdate` Schema，要求新的 nested 格式。
+2. 在读取 `sla_config` 的规则引擎中增加兼容层：若检测到 flat 格式（存在 `first_resp_hours` 顶层键且不存在 `P0`），将其视为所有优先级的统一配置。
+3. 提供 Alembic 数据迁移脚本，将现有 flat 数据升级为 nested 格式（统一映射到所有优先级）。
 
 ```python
 DEFAULT_SLA = {
@@ -110,6 +117,7 @@ CREATE TABLE sla_records (
 );
 
 CREATE INDEX idx_sla_due ON sla_records(resolution_due) WHERE resolution_breached = FALSE;
+CREATE INDEX idx_first_resp_due ON sla_records(first_resp_due) WHERE first_resp_breached = FALSE;
 ```
 
 **模型定义：**
@@ -173,10 +181,12 @@ class Notification(Base):
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 ```
+
+> **注意**：模型中使用 `from sqlalchemy.dialects.postgresql import JSONB`，与 PostgreSQL DDL 保持一致，支持未来对该列建 GIN 索引。
 
 ---
 
@@ -184,12 +194,22 @@ class Notification(Base):
 
 ### 5.1 创建 SLA 记录
 
-在 `create_ticket()` service 中，工单入库后（`db.flush()` 拿到 `ticket.id`）立即创建：
+在 `create_ticket()` service **内部**、它自身的 `db.commit()` **之前**创建 SLA 记录。不改动 `create_ticket()` 的 commit 契约：
 
 ```python
 async def create_sla_record(db, ticket: Ticket) -> SLARecord:
-    sla_config = ticket.category.sla_config or {}
-    priority_config = sla_config.get(ticket.priority, DEFAULT_SLA[ticket.priority])
+    # 显式加载 category，避免懒加载 N+1
+    from sqlalchemy import select
+    from app.models.category import Category
+    cat_result = await db.execute(select(Category).where(Category.id == ticket.category_id))
+    category = cat_result.scalar_one()
+
+    sla_config = category.sla_config or {}
+    # 兼容旧版 flat 格式
+    if "first_resp_hours" in sla_config and "P0" not in sla_config:
+        priority_config = sla_config
+    else:
+        priority_config = sla_config.get(ticket.priority, DEFAULT_SLA[ticket.priority])
 
     now = datetime.utcnow()
     record = SLARecord(
@@ -201,129 +221,211 @@ async def create_sla_record(db, ticket: Ticket) -> SLARecord:
         resolution_due=now + timedelta(hours=priority_config["resolution_hours"]),
     )
     db.add(record)
-    await db.flush()
+    # 不自行 flush/commit，由 create_ticket 统一 commit
     return record
 ```
 
-**事务边界**：`create_ticket()` 的调用方统一 `commit`，确保工单与 SLA 记录原子性。
+**调用位置**：`create_ticket()` 在 `db.add(ticket); await db.flush()` 之后、`await db.commit()` 之前调用 `await create_sla_record(db, ticket)`。
 
 ### 5.2 首次响应时间捕获
 
-在 `create_reply()` service 中，当非内部备注的客服回复时：
+`create_reply()` 的 router 层已知 `current_user.role`。由 router 传入 `is_agent_reply` 布尔值，避免 service 层查用户表：
 
 ```python
-if not is_internal and author.role in ("agent", "supervisor", "admin"):
-    sla = await get_sla_record_by_ticket_id(db, ticket_id)
-    if sla and sla.first_resp_at is None:
-        sla.first_resp_at = datetime.utcnow()
+# router 层判断
+is_agent_reply = current_user.role in ("agent", "supervisor", "admin") and not reply_in.is_internal
+
+# service 层接收
+async def create_reply(db, ticket_id, author_id, content, is_internal, is_agent_reply=False):
+    # ... 现有逻辑 ...
+    if is_agent_reply:
+        sla = await get_sla_record_by_ticket_id(db, ticket_id)
+        if sla and sla.first_resp_at is None:
+            sla.first_resp_at = datetime.utcnow()
+    # ... commit 由 router/调用方控制 ...
 ```
 
-### 5.3 解决时间捕获
+### 5.3 解决时间捕获与重新打开
 
-在 `update_ticket_status()` service 中，状态变为 `resolved` 时：
+在 `transition_ticket_status()` service 中：
 
 ```python
 if new_status == "resolved":
     sla = await get_sla_record_by_ticket_id(db, ticket.id)
     if sla and sla.resolved_at is None:
         sla.resolved_at = datetime.utcnow()
+
+# 工单重新打开：清空 resolved_at，让其继续受 resolution SLA 约束
+if old_status == "resolved" and new_status == "in_progress":
+    sla = await get_sla_record_by_ticket_id(db, ticket.id)
+    if sla:
+        sla.resolved_at = None
+        # 可选：重新计算 resolution_due（基于当前时间 + resolution_hours）
+        # sla.resolution_due = datetime.utcnow() + timedelta(hours=sla.resolution_hours)
 ```
 
 ---
 
 ## 六、Celery 定时扫描任务
 
-### 6.1 扫描周期
+### 6.1 扫描周期与 Beat 配置
 
 每 5 分钟执行一次 `scan_sla_deadlines`。
 
-### 6.2 扫描逻辑
-
-对于**首次响应 SLA** 和**解决 SLA**，分别检查 4 个阶段：
+在 `celery_worker.py` 中增加 Beat Schedule：
 
 ```python
+from celery import Celery
+
+celery_app = Celery(
+    "worker",
+    broker="redis://redis:6379/0",
+    backend="redis://redis:6379/0",
+    include=["app.tasks.sla_tasks", "app.tasks.email_tasks"],
+)
+
+celery_app.conf.beat_schedule = {
+    "scan-sla-deadlines": {
+        "task": "tasks.scan_sla_deadlines",
+        "schedule": 300.0,  # 5 分钟
+    },
+}
+```
+
+### 6.2 扫描逻辑（含行级锁与防 N+1）
+
+```python
+from celery import shared_task
+from sqlalchemy.orm import selectinload
+
+@shared_task(name="tasks.scan_sla_deadlines")
+def scan_sla_deadlines():
+    import asyncio
+    asyncio.run(_async_scan())
+
 async def _async_scan():
     now = datetime.utcnow()
 
     async with AsyncSessionLocal() as db:
-        # ========== 首次响应预警 / 超时 ==========
-        await _scan_first_resp(db, now)
-        # ========== 解决预警 / 超时 ==========
-        await _scan_resolution(db, now)
+        # 缓存主管列表（整个扫描周期只查一次）
+        supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
+        supervisor_ids = [r[0] for r in supervisors.all()]
 
-        await db.commit()
+        try:
+            # ========== 首次响应预警 / 超时 ==========
+            await _scan_first_resp(db, now, supervisor_ids)
+            # ========== 解决预警 / 超时 ==========
+            await _scan_resolution(db, now, supervisor_ids)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
 
-async def _scan_first_resp(db, now):
+async def _scan_first_resp(db, now, supervisor_ids):
     # --- 客服 3 小时提醒 ---
-    stmt = select(SLARecord).where(
-        SLARecord.first_resp_hours > 3,  # 只有 SLA > 3h 才需要此提醒
-        SLARecord.first_resp_due > now,
-        SLARecord.first_resp_due <= now + timedelta(hours=3),
-        SLARecord.first_resp_at.is_(None),
-        SLARecord.first_resp_warned_agent_3h.is_(False),
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 3,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=3),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_agent_3h.is_(False),
+        )
+        .with_for_update()
     )
     for record in (await db.execute(stmt)).scalars():
-        record.first_resp_warned_agent_3h = True
-        await notify_sla_warning(db, record, "first_resp", stage="agent_3h")
+        try:
+            sent = await notify_sla_warning(db, record, "first_resp", stage="agent_3h", supervisor_ids=supervisor_ids)
+            if sent:
+                record.first_resp_warned_agent_3h = True
+        except Exception:
+            # 单条记录异常不阻断整批；继续处理下一条
+            logger.exception("Failed to send first_resp 3h warning for ticket %s", record.ticket_id)
 
     # --- 客服 2 小时提醒 ---
-    stmt = select(SLARecord).where(
-        SLARecord.first_resp_hours > 2,
-        SLARecord.first_resp_due > now,
-        SLARecord.first_resp_due <= now + timedelta(hours=2),
-        SLARecord.first_resp_at.is_(None),
-        SLARecord.first_resp_warned_agent_2h.is_(False),
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 2,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=2),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_agent_2h.is_(False),
+        )
+        .with_for_update()
     )
     for record in (await db.execute(stmt)).scalars():
-        record.first_resp_warned_agent_2h = True
-        await notify_sla_warning(db, record, "first_resp", stage="agent_2h")
+        try:
+            sent = await notify_sla_warning(db, record, "first_resp", stage="agent_2h", supervisor_ids=supervisor_ids)
+            if sent:
+                record.first_resp_warned_agent_2h = True
+        except Exception:
+            logger.exception("Failed to send first_resp 2h warning for ticket %s", record.ticket_id)
 
     # --- 主管 1 小时提醒 ---
-    stmt = select(SLARecord).where(
-        SLARecord.first_resp_hours > 1,
-        SLARecord.first_resp_due > now,
-        SLARecord.first_resp_due <= now + timedelta(hours=1),
-        SLARecord.first_resp_at.is_(None),
-        SLARecord.first_resp_warned_supervisor_1h.is_(False),
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_hours > 1,
+            SLARecord.first_resp_due > now,
+            SLARecord.first_resp_due <= now + timedelta(hours=1),
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_warned_supervisor_1h.is_(False),
+        )
+        .with_for_update()
     )
     for record in (await db.execute(stmt)).scalars():
-        record.first_resp_warned_supervisor_1h = True
-        await notify_sla_warning(db, record, "first_resp", stage="supervisor_1h")
+        try:
+            sent = await notify_sla_warning(db, record, "first_resp", stage="supervisor_1h", supervisor_ids=supervisor_ids)
+            if sent:
+                record.first_resp_warned_supervisor_1h = True
+        except Exception:
+            logger.exception("Failed to send first_resp 1h warning for ticket %s", record.ticket_id)
 
     # --- 超时 ---
-    stmt = select(SLARecord).where(
-        SLARecord.first_resp_due <= now,
-        SLARecord.first_resp_at.is_(None),
-        SLARecord.first_resp_breached.is_(False),
+    stmt = (
+        select(SLARecord)
+        .options(selectinload(SLARecord.ticket))
+        .where(
+            SLARecord.first_resp_due <= now,
+            SLARecord.first_resp_at.is_(None),
+            SLARecord.first_resp_breached.is_(False),
+        )
+        .with_for_update()
     )
     for record in (await db.execute(stmt)).scalars():
-        record.first_resp_breached = True
-        await notify_sla_breach(db, record, "first_resp")
+        try:
+            await notify_sla_breach(db, record, "first_resp", supervisor_ids=supervisor_ids)
+            record.first_resp_breached = True
+        except Exception:
+            logger.exception("Failed to process first_resp breach for ticket %s", record.ticket_id)
 
-async def _scan_resolution(db, now):
-    # 逻辑同 _scan_first_resp，字段名替换为 resolution_*
-    # ...（客服 3h / 2h、主管 1h、超时）
+async def _scan_resolution(db, now, supervisor_ids):
+    # 逻辑同 _scan_first_resp，字段名替换为 resolution_*，stage 映射相同
+    # ...（客服 3h / 2h、主管 1h、超时，均使用 with_for_update + selectinload + try/except）
 ```
 
-### 6.3 通知发送
+### 6.3 通知发送（无内部 flush）
 
 ```python
-async def notify_sla_warning(db, sla: SLARecord, breach_type: str, stage: str):
+async def notify_sla_warning(
+    db, sla: SLARecord, breach_type: str, stage: str, supervisor_ids: list[int]
+) -> bool:
+    """返回是否成功发送了至少一条通知。"""
     ticket = sla.ticket
-    target_roles = []
-
-    if stage in ("agent_3h", "agent_2h"):
-        target_roles = ["agent"]
-    elif stage == "supervisor_1h":
-        target_roles = ["supervisor"]
-
-    # 收集目标用户
     target_user_ids = set()
-    if "agent" in target_roles and ticket.assignee_id:
+
+    if stage in ("agent_3h", "agent_2h") and ticket.assignee_id:
         target_user_ids.add(ticket.assignee_id)
-    if "supervisor" in target_roles:
-        supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
-        target_user_ids.update(supervisors.scalars().all())
+    elif stage == "supervisor_1h":
+        target_user_ids.update(supervisor_ids)
+
+    if not target_user_ids:
+        return False
 
     stage_label = {"agent_3h": "3小时", "agent_2h": "2小时", "supervisor_1h": "1小时"}[stage]
     type_label = "首次响应" if breach_type == "first_resp" else "解决"
@@ -333,29 +435,35 @@ async def notify_sla_warning(db, sla: SLARecord, breach_type: str, stage: str):
             db,
             user_id=user_id,
             type="sla_warning",
-            title=f"⚠️ 工单 #{ticket.ticket_no} 即将超时",
+            title=f"[预警] 工单 #{ticket.ticket_no} 即将超时",
             message=f"{type_label}截止时间剩余不足 {stage_label}，请及时处理。",
             data={"ticket_id": ticket.id, "sla_record_id": sla.id, "stage": stage, "type": breach_type},
         )
+    return True
 
-async def notify_sla_breach(db, sla: SLARecord, breach_type: str):
+async def notify_sla_breach(
+    db, sla: SLARecord, breach_type: str, supervisor_ids: list[int]
+) -> None:
     ticket = sla.ticket
     target_user_ids = set()
 
     if ticket.assignee_id:
         target_user_ids.add(ticket.assignee_id)
-    supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
-    target_user_ids.update(supervisors.scalars().all())
+    target_user_ids.update(supervisor_ids)
+
+    if not target_user_ids:
+        return
 
     type_label = "首次响应" if breach_type == "first_resp" else "解决"
+    hours = sla.first_resp_hours if breach_type == "first_resp" else sla.resolution_hours
 
     for user_id in target_user_ids:
         await create_notification(
             db,
             user_id=user_id,
             type="sla_breach",
-            title=f"🚨 工单 #{ticket.ticket_no} SLA 已超时",
-            message=f"{type_label}时间已超出规定时限（{sla.first_resp_hours if breach_type == 'first_resp' else sla.resolution_hours} 小时）。",
+            title=f"[超时] 工单 #{ticket.ticket_no} SLA 已超时",
+            message=f"{type_label}时间已超出规定时限（{hours} 小时）。",
             data={"ticket_id": ticket.id, "sla_record_id": sla.id, "type": breach_type},
         )
 ```
@@ -376,7 +484,7 @@ async def create_notification(db, user_id: int, type: str, title: str, message: 
         data=data or {},
     )
     db.add(notif)
-    await db.flush()
+    # 不自行 flush，由调用方统一 commit
     return notif
 
 async def get_unread_notifications(db, user_id: int, limit: int = 50) -> list[Notification]:
@@ -423,7 +531,7 @@ async def mark_all_notifications_read(db, user_id: int) -> int:
     {
       "id": 12,
       "type": "sla_warning",
-      "title": "⚠️ 工单 #TK-20260809-0015 即将超时",
+      "title": "[预警] 工单 #TK-20260809-0015 即将超时",
       "message": "首次响应截止时间剩余不足 1小时，请及时处理。",
       "data": {"ticket_id": 15, "sla_record_id": 8, "stage": "supervisor_1h"},
       "is_read": false,
@@ -494,7 +602,7 @@ async def mark_all_notifications_read(db, user_id: int) -> int:
 |--------|----------|----------|
 | 工单创建 | `app/services/ticket_service.py` | `create_ticket()` 中 `db.flush()` 后调用 `create_sla_record()` |
 | 工单回复 | `app/services/ticket_service.py` | `create_reply()` 中检测首次客服回复，更新 `first_resp_at` |
-| 状态流转 | `app/services/ticket_service.py` | `update_ticket_status()` 中 `resolved` 时更新 `resolved_at` |
+| 状态流转 | `app/services/ticket_service.py` | `transition_ticket_status()` 中 `resolved` 时更新 `resolved_at`；`resolved → in_progress` 时清空 `resolved_at` |
 | Celery Worker | `celery_worker.py` | 注册 `app.tasks.sla_tasks` |
 | 主路由 | `app/main.py` | include `sla` router（如有）和 `notifications` router |
 | 邮件发送 | `app/services/mailer.py` | 懒加载调用 `Mailer.send()`（可选，MVP 先站内信） |
