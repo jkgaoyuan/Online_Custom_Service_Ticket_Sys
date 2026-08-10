@@ -51,6 +51,59 @@ docker compose up -d
 - API 文档: http://localhost:8000/docs
 - 健康检查: http://localhost:8000/health
 
+## 初始化配置与默认账户
+
+系统首次启动时会自动创建默认管理员，并加载基础环境配置。以下为快速参考，**生产环境请务必修改所有默认值**。
+
+### 默认管理员账户
+
+后端服务启动时（`lifespan`）自动检查并创建：
+
+| 字段 | 默认值 | 备注 |
+|------|--------|------|
+| 用户名 | `admin` | 若已存在则跳过创建 |
+| 邮箱 | `admin@example.com` | — |
+| 密码 | `admin123` | **生产环境必须立即修改** |
+| 角色 | `admin` | 拥有全部权限 |
+
+> 密码修改方式：登录后通过前端个人设置修改，或直接更新数据库 `users` 表的 `password_hash` 字段。
+
+### 数据库连接信息
+
+开发环境默认（`docker-compose.yml` / `backend/app/config.py`）：
+
+```
+主机: localhost (或 postgres 容器内)
+端口: 5432
+数据库: ticket_db
+用户名: ticket_user
+密码: ticket_pass
+```
+
+生产环境默认（`docker-compose.prod.yml` / `.env.production`）：
+
+```
+主机: postgres (容器网络内)
+端口: 5432
+数据库: ticket_db
+用户名: ticket_user
+密码: <见 .env.production 中 POSTGRES_PASSWORD>
+```
+
+### 关键环境变量清单
+
+生产环境变量统一维护在 `.env.production`（**切勿提交到 Git**），关键项如下：
+
+| 变量 | 用途 | 默认值示例 | 是否必须修改 |
+|------|------|------------|--------------|
+| `SECRET_KEY` | JWT 签名密钥 | `change-me` | ✅ 必须 |
+| `POSTGRES_PASSWORD` | 数据库密码 | `change-me` | ✅ 必须 |
+| `WEBHOOK_SECRET` | Webhook 验签 | `change-me` | ✅ 必须 |
+| `FRONTEND_URL` | CORS 允许来源 | `http://localhost:80` | 按需调整 |
+| `SMTP_*` | 邮件发送 | 空 | 启用邮件时配置 |
+
+> `.env.production` 当前 Git 状态为已修改（`M`），请确认该文件已加入 `.gitignore`，避免密钥泄露。
+
 ## 项目文档
 
 - `PRD.md` — 产品需求文档
