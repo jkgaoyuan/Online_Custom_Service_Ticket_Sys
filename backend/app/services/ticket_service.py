@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import DuplicateException
+from app.exceptions import DuplicateException, TicketSystemException
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketUpdate
@@ -134,6 +134,26 @@ async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_stat
         if sla:
             sla.resolved_at = None
 
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
+
+
+async def submit_satisfaction(
+    db: AsyncSession, ticket: Ticket, user_id: int, rating: str, note: str | None
+) -> Ticket:
+    if ticket.requester_id != user_id:
+        raise TicketSystemException("只能评价自己的工单", status_code=403)
+
+    if ticket.status != "closed":
+        raise TicketSystemException("工单未关闭，无法评价", status_code=400)
+
+    if ticket.satisfaction_at is not None:
+        raise TicketSystemException("该工单已评价，不可修改", status_code=400)
+
+    ticket.satisfaction = rating
+    ticket.satisfaction_note = note[:500] if note else None
+    ticket.satisfaction_at = datetime.utcnow()
     await db.commit()
     await db.refresh(ticket)
     return ticket

@@ -43,6 +43,9 @@ class TicketResponse(BaseModel):
     updated_at: datetime
     resolved_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    satisfaction: Optional[str] = None
+    satisfaction_note: Optional[str] = None
+    satisfaction_at: Optional[datetime] = None
     sla: Optional[SLASummary] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -54,3 +57,16 @@ class StatusUpdateRequest(BaseModel):
 
 class AssignRequest(BaseModel):
     assignee_id: int
+
+
+class SatisfactionSubmit(BaseModel):
+    rating: str = Field(..., pattern="^(satisfied|neutral|dissatisfied)$")
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class SatisfactionInfo(BaseModel):
+    rating: str
+    note: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

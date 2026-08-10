@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.sla import SLASummary
 from app.schemas.ticket import (
     AssignRequest,
+    SatisfactionSubmit,
     StatusUpdateRequest,
     TicketCreate,
     TicketResponse,
@@ -19,6 +20,7 @@ from app.services.ticket_service import (
     create_ticket,
     get_ticket_by_id,
     get_tickets_query,
+    submit_satisfaction,
     transition_ticket_status,
     update_ticket,
 )
@@ -168,4 +170,21 @@ async def assign_ticket(
     await log_manual_assign(db, ticket.id, req.assignee_id, f"手动分派 by user {current_user.id}")
     await db.commit()
     await db.refresh(ticket)
+    return ticket
+
+
+@router.post("/tickets/{ticket_id}/satisfaction", response_model=TicketResponse)
+async def submit_satisfaction_endpoint(
+    ticket_id: int,
+    data: SatisfactionSubmit,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    ticket = await submit_satisfaction(
+        db, ticket, current_user.id, data.rating, data.note
+    )
     return ticket
