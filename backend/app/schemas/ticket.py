@@ -61,7 +61,7 @@ class AssignRequest(BaseModel):
 
 class SatisfactionSubmit(BaseModel):
     rating: str = Field(..., pattern="^(satisfied|neutral|dissatisfied)$")
-    note: Optional[str] = Field(None, max_length=500)
+    note: Optional[str] = Field(None)
 
 
 class SatisfactionInfo(BaseModel):
