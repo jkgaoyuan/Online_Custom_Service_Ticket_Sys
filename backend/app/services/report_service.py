@@ -12,7 +12,7 @@ from app.models.user import User
 
 
 MAX_DATE_RANGE_DAYS = 365
-SATISFACTION_SCORES = {"satisfied": 5, "neutral": 3, "dissatisfied": 1}
+SATISFACTION_SCORES = {"satisfied": 3, "neutral": 2, "dissatisfied": 1}
 INTERVALS = {"day": "1 day", "week": "1 week", "month": "1 month"}
 
 
