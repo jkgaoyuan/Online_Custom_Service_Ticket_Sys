@@ -90,17 +90,21 @@ docker compose up -d
 密码: <见 .env.production 中 POSTGRES_PASSWORD>
 ```
 
-### 关键环境变量清单
+### 完整环境变量清单
 
-生产环境变量统一维护在 `.env.production`（**切勿提交到 Git**），关键项如下：
+生产环境变量统一维护在 `.env.production`（**切勿提交到 Git**），完整变量如下：
 
 | 变量 | 用途 | 默认值示例 | 是否必须修改 |
 |------|------|------------|--------------|
 | `SECRET_KEY` | JWT 签名密钥 | `change-me` | ✅ 必须 |
 | `POSTGRES_PASSWORD` | 数据库密码 | `change-me` | ✅ 必须 |
 | `WEBHOOK_SECRET` | Webhook 验签 | `change-me` | ✅ 必须 |
+| `APP_NAME` | 应用名称 | `Ticket System API` | 按需调整 |
+| `DEBUG` | 调试模式 | `False` | 生产环境保持 `False` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT 过期时间（分钟） | `60` | 按需调整 |
+| `ALGORITHM` | JWT 签名算法 | `HS256` | 通常保持默认 |
 | `FRONTEND_URL` | CORS 允许来源 | `http://localhost:80` | 按需调整 |
-| `SMTP_*` | 邮件发送 | 空 | 启用邮件时配置 |
+| `SMTP_*` | 邮件发送（`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_TLS`, `EMAIL_FROM`） | 空 | 启用邮件时配置 |
 
 > `.env.production` 当前 Git 状态为已修改（`M`），请确认该文件已加入 `.gitignore`，避免密钥泄露。
 
