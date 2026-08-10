@@ -8,6 +8,7 @@ from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.ticket import TicketCreate, TicketUpdate
 from app.services.sla_service import create_sla_record, get_sla_record_by_ticket_id
+from app.services.notification_service import create_notification
 
 
 async def generate_ticket_no(db: AsyncSession) -> str:
@@ -126,6 +127,14 @@ async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_stat
 
     if target_status == "closed":
         ticket.closed_at = datetime.utcnow()
+        await create_notification(
+            db,
+            user_id=ticket.requester_id,
+            type="satisfaction_invite",
+            title=f"工单 #{ticket.ticket_no} 已关闭，请评价我们的服务",
+            message="您的工单已处理完毕，点击评价本次服务体验。",
+            data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
+        )
 
     # 重新打开：清空 resolved_at，让其继续受 resolution SLA 约束
     if old_status == "resolved" and target_status == "in_progress":
