@@ -28,6 +28,7 @@ export const useReportsStore = defineStore('reports', () => {
 
   const exportTask = ref(null)
   const exporting = ref(false)
+  const exportFormat = ref(null)
 
   const fetchCurrentTab = async () => {
     const targetTab = activeTab.value
@@ -69,6 +70,7 @@ export const useReportsStore = defineStore('reports', () => {
   const submitExport = async (format) => {
     if (exporting.value) return
     exporting.value = true
+    exportFormat.value = format
     try {
       const [start, end] = dateRange.value
       const { data } = await reportApi.export({
@@ -112,6 +114,7 @@ export const useReportsStore = defineStore('reports', () => {
     satisfaction,
     exportTask,
     exporting,
+    exportFormat,
     fetchCurrentTab,
     submitExport,
     pollExportStatus,

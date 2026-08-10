@@ -1,5 +1,5 @@
 <template>
-  <div class="reports-page">
+  <div class="reports-page" v-loading="store.loading">
     <!-- 顶部工具栏 -->
     <div class="toolbar">
       <el-date-picker
@@ -9,7 +9,7 @@
         start-placeholder="开始日期"
         end-placeholder="结束日期"
         :disabled="store.activeTab === 'overview' || store.loading"
-        @change="handleDateChange"
+        @change="refreshData"
       />
       <div class="export-buttons">
         <el-button
@@ -52,7 +52,7 @@
     </el-alert>
 
     <!-- Tab 内容 -->
-    <el-tabs v-model="store.activeTab" @tab-change="handleTabChange">
+    <el-tabs v-model="store.activeTab" @tab-change="refreshData">
       <el-tab-pane label="综合概览" name="overview">
         <OverviewPanel v-if="store.activeTab === 'overview'" />
       </el-tab-pane>
@@ -69,8 +69,6 @@
         <SatisfactionPanel v-if="store.activeTab === 'satisfaction'" />
       </el-tab-pane>
     </el-tabs>
-
-    <el-loading v-model="store.loading" fullscreen />
   </div>
 </template>
 
@@ -91,11 +89,7 @@ onMounted(() => {
   store.fetchCurrentTab()
 })
 
-const handleTabChange = () => {
-  store.fetchCurrentTab()
-}
-
-const handleDateChange = () => {
+const refreshData = () => {
   store.fetchCurrentTab()
 }
 
@@ -114,12 +108,12 @@ const handleExport = async (format) => {
         if (attempts >= maxAttempts && data.status !== 'completed') {
           clearInterval(interval)
           ElMessage.error('导出超时，请重试')
-          store.exportTask.value = null
+          store.exportTask = null
         }
       } catch {
         clearInterval(interval)
         ElMessage.error('导出失败，请重试')
-        store.exportTask.value = null
+        store.exportTask = null
       }
     }, 2000)
   } catch {
@@ -132,14 +126,13 @@ const downloadFile = async () => {
   if (!url) return
   try {
     const res = await api.get(url, { responseType: 'blob' })
-    const blob = new Blob([res.data])
-    const downloadUrl = URL.createObjectURL(blob)
+    const downloadUrl = URL.createObjectURL(res.data)
     const a = document.createElement('a')
     a.href = downloadUrl
-    const format = store.exportTask?.taskId ? 'xlsx' : 'csv'
+    const format = store.exportFormat || 'xlsx'
     a.download = `report_${store.exportTask.taskId}.${format}`
     a.click()
-    URL.revokeObjectURL(downloadUrl)
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 100)
   } catch {
     ElMessage.error('下载失败')
   }
