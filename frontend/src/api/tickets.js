@@ -7,6 +7,7 @@ export const ticketApi = {
   reply: (id, data) => api.post(`/tickets/${id}/replies`, data),
   updateStatus: (id, status) => api.post(`/tickets/${id}/status`, { status }),
   assign: (id, assigneeId) => api.post(`/tickets/${id}/assign`, { assignee_id: assigneeId }),
+  submitSatisfaction: (id, data) => api.post(`/tickets/${id}/satisfaction`, data),
 }
 
 export const replyApi = {

@@ -65,9 +65,15 @@ export const useTicketsStore = defineStore('tickets', () => {
     return data
   }
 
+  const submitSatisfaction = async (ticketId, payload) => {
+    const { data } = await ticketApi.submitSatisfaction(ticketId, payload)
+    currentTicket.value = data
+    return data
+  }
+
   return {
     tickets, currentTicket, replies, categories, pagination, loading,
     fetchCategories, fetchTickets, fetchTicket, fetchReplies,
-    createTicket, replyTicket, updateStatus, assignTicket,
+    createTicket, replyTicket, updateStatus, assignTicket, submitSatisfaction,
   }
 })
