@@ -10,6 +10,7 @@ from app.database import Base
 from app.models import (  # noqa: F401
     agent_skill,
     category,
+    collaboration,
     email_ingestion,
     notification,
     sla_record,

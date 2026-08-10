@@ -8,7 +8,7 @@
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| Python | 3.11 | 运行时 |
+| Python | 3.10 | 运行时 |
 | FastAPI | 0.110+ | Web 框架，自动 OpenAPI 文档 |
 | SQLAlchemy | 2.0+ | ORM，数据库抽象 |
 | Alembic | 1.13+ | 数据库迁移 |
@@ -61,7 +61,7 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Application Layer                         │
-│                    FastAPI (Python 3.11)                     │
+│                    FastAPI (Python 3.10)                     │
 │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │
 │  │ Auth Module│ │ Ticket Mod │ │ Assign Mod │ │ SLA Mod  │ │
 │  └────────────┘ └────────────┘ └────────────┘ └──────────┘ │
@@ -78,8 +78,8 @@
 │  │   PostgreSQL    │    │      │  │    Celery Worker    │    │
 │  │   (Primary DB)  │◄───┘      │  │  - SLA monitor      │    │
 │  └─────────────────┘           │  │  - Email webhook    │    │
-│  ┌─────────────────┐           │  │  - Notify sender    │    │
-│  │      Redis      │◄──────────┘  │  - Report export    │    │
+│  ┌─────────────────┐           │  │  - Report export    │    │
+│  │      Redis      │◄──────────┘  │  - Notify sender    │    │
 │  │ (Broker/Cache)  │              │  └─────────────────────┘    │
 │  └─────────────────┘              └─────────────────────────────┘
 └─────────────────────────┘
@@ -163,7 +163,12 @@ ticket-system/
 │   └── Dockerfile
 │
 ├── docker-compose.yml
+├── docker-compose.prod.yml
+├── .env.production
+├── deploy.sh
 ├── nginx.conf
+├── docs/
+│   └── deployment.md
 └── README.md
 ```
 
@@ -199,6 +204,10 @@ celery -A celery_worker worker --loglevel=info
 cd ../frontend
 npm install
 npm run dev
+
+# 8. 运行测试（可选）
+cd backend && pytest --cov=app --cov-report=term-missing
+cd frontend && npm run test
 ```
 
 ### 4.2 Docker Compose 配置（关键服务）
@@ -214,6 +223,10 @@ npm run dev
 ### 4.3 环境变量（.env 示例）
 
 ```bash
+# App
+APP_NAME=Ticket System API
+DEBUG=True
+
 # Database
 DATABASE_URL=postgresql+asyncpg://ticket_user:ticket_pass@postgres:5432/ticket_db
 
@@ -223,6 +236,7 @@ REDIS_URL=redis://redis:6379/0
 # JWT
 SECRET_KEY=your-secret-key-change-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=480
+ALGORITHM=HS256
 
 # Celery
 CELERY_BROKER_URL=redis://redis:6379/1
@@ -230,6 +244,21 @@ CELERY_RESULT_BACKEND=redis://redis:6379/2
 
 # Webhook
 WEBHOOK_SECRET=webhook-signing-secret
+
+# Reports
+EXPORT_DIR=./exports
+
+# Inbound Email
+EMAIL_DEFAULT_CATEGORY_CODE=email
+EMAIL_ALLOWED_DOMAINS=
+
+# Outbound — SMTP (启用时配置)
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_TLS=True
+EMAIL_FROM=
 ```
 
 ---
