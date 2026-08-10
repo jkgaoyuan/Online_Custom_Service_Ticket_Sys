@@ -34,6 +34,7 @@ class Ticket(Base):
     )
     resolved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     closed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    satisfaction_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     category: Mapped["Category"] = relationship("Category")
     requester: Mapped["User"] = relationship("User", foreign_keys=[requester_id])
