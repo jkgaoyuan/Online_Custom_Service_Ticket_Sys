@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import NotFoundException, TicketSystemException, ValidationException
+from app.exceptions import NotFoundException, TicketSystemException
 from app.models.collaboration import TicketCollaboration
 from app.models.ticket import Ticket
 from app.models.user import User
@@ -31,12 +31,12 @@ async def transfer_ticket(
     # Validate target is active agent
     user_result = await db.execute(select(User).where(User.id == to_user_id))
     target_user = user_result.scalar_one_or_none()
-    if target_user is None or target_user.role not in ("agent", "supervisor", "admin") or not target_user.is_active:
-        raise ValidationException("转交目标必须是有效的客服角色")
+    if target_user is None or target_user.role != "agent" or not target_user.is_active:
+        raise TicketSystemException("转交目标必须是有效的客服角色", status_code=400)
 
     # Cannot transfer to self (same assignee)
     if ticket.assignee_id == to_user_id:
-        raise ValidationException("不能转交给当前处理人")
+        raise TicketSystemException("不能转交给当前处理人", status_code=400)
 
     # Create transfer record
     collaboration = TicketCollaboration(
@@ -49,17 +49,19 @@ async def transfer_ticket(
     db.add(collaboration)
 
     # Update ticket assignee and status
+    old_assignee_id = ticket.assignee_id
     ticket.assignee_id = to_user_id
     if ticket.status == "open":
         ticket.status = "in_progress"
 
     # Notify new assignee
+    source_text = "系统" if old_assignee_id is None else "客服"
     await create_notification(
         db,
         user_id=to_user_id,
         type="ticket_transferred",
         title=f"工单 #{ticket.ticket_no} 已转交给您",
-        message=f"工单已转交给您，请尽快处理。",
+        message=f"来自 {source_text} 的转交，原因：{reason or '无'}"[:200],
         data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
     )
 
@@ -84,8 +86,8 @@ async def request_assistance(
     # Validate target is active agent
     user_result = await db.execute(select(User).where(User.id == to_user_id))
     target_user = user_result.scalar_one_or_none()
-    if target_user is None or target_user.role not in ("agent", "supervisor", "admin") or not target_user.is_active:
-        raise ValidationException("协助目标必须是有效的客服角色")
+    if target_user is None or target_user.role != "agent" or not target_user.is_active:
+        raise TicketSystemException("协助目标必须是有效的客服角色", status_code=400)
 
     # Check duplicate assist for same ticket + same agent
     existing_result = await db.execute(
@@ -96,7 +98,7 @@ async def request_assistance(
         )
     )
     if existing_result.scalar_one_or_none() is not None:
-        raise ValidationException("该客服已对此工单提供协助，不可重复请求")
+        raise TicketSystemException("该客服已对此工单提供协助，不可重复请求", status_code=400)
 
     # Create assist record
     collaboration = TicketCollaboration(
@@ -114,7 +116,7 @@ async def request_assistance(
         user_id=to_user_id,
         type="assistance_requested",
         title=f"工单 #{ticket.ticket_no} 请求协助",
-        message=f"您被请求协助处理该工单。",
+        message=f"协助说明：{reason or '无'}"[:200],
         data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
     )
 
