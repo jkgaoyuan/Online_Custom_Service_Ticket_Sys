@@ -12,12 +12,16 @@ export const useUsersStore = defineStore('users', () => {
   const fetchUsers = async (params = {}) => {
     loading.value = true
     try {
-      const { data } = await adminApi.listUsers({
+      const query = {
         page: pagination.value.page,
         page_size: pagination.value.page_size,
-        ...filters.value,
         ...params,
-      })
+      }
+      if (filters.value.role) query.role = filters.value.role
+      if (filters.value.is_active !== '' && filters.value.is_active !== null && filters.value.is_active !== undefined) {
+        query.is_active = filters.value.is_active
+      }
+      const { data } = await adminApi.listUsers(query)
       users.value = data.items
       pagination.value = { total: data.total, page: data.page, page_size: data.page_size }
     } catch (error) {

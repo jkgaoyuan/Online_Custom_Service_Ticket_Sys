@@ -1,4 +1,4 @@
-import random
+import secrets
 import string
 from datetime import datetime
 
@@ -112,7 +112,7 @@ async def reset_user_password(db: AsyncSession, user_id: int) -> str:
     if not user:
         raise NotFoundException("用户不存在")
 
-    temp_password = "".join(random.choices(string.ascii_letters + string.digits, k=12))
+    temp_password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
     user.password_hash = get_password_hash(temp_password)
     user.updated_at = datetime.utcnow()
 
@@ -121,30 +121,27 @@ async def reset_user_password(db: AsyncSession, user_id: int) -> str:
         user_id=user.id,
         type="password_reset",
         title="密码已重置",
-        message=f"您的密码已被管理员重置，请使用临时密码登录并及时修改。",
-        data={"temp_password": temp_password},
+        message="您的密码已被管理员重置，请使用临时密码登录并及时修改。",
+        data={"user_id": user.id},
     )
 
     await db.commit()
     return temp_password
 
 
-async def get_user_stats(db: AsyncSession, user_id: int) -> dict | None:
+async def get_user_stats(db: AsyncSession, user_id: int) -> dict:
     total_result = await db.execute(
         select(func.count()).where(Ticket.assignee_id == user_id)
     )
     total_tickets = total_result.scalar_one()
 
-    if total_tickets == 0:
-        return None
-
     resolved_result = await db.execute(
-        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status == "resolved")
+        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status == "closed")
     )
     resolved_tickets = resolved_result.scalar_one()
 
     open_result = await db.execute(
-        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status == "open")
+        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status != "closed")
     )
     open_tickets = open_result.scalar_one()
 

@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_role
+from app.dependencies import require_role
 from app.exceptions import PermissionDeniedException
 from app.models.user import User
 from app.schemas.user import (
+    PasswordResetResponse,
     UserDetailResponse,
     UserListItem,
     UserListResponse,
@@ -97,7 +98,7 @@ async def modify_user(
     return UserResponse.model_validate(updated)
 
 
-@router.post("/users/{user_id}/reset-password")
+@router.post("/users/{user_id}/reset-password", response_model=PasswordResetResponse)
 async def reset_password(
     user_id: int,
     db: AsyncSession = Depends(get_db),

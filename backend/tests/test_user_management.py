@@ -106,7 +106,7 @@ async def test_customer_list_users_403(async_client, db, customer_auth_headers):
 
 
 # 7. Duplicate username on update
-async def test_update_user_duplicate_username_400(async_client, db, admin_auth_headers):
+async def test_update_user_duplicate_username_409(async_client, db, admin_auth_headers):
     user1 = await _user(db, "dupuser1", role="agent")
     user2 = await _user(db, "dupuser2", role="agent")
     r = await async_client.put(
