@@ -79,6 +79,14 @@ async def create_user_by_admin(db: AsyncSession, data: UserCreateInternal) -> Us
     return user
 
 
+async def list_active_users(db: AsyncSession, role: str | None = None) -> list[User]:
+    stmt = select(User).where(User.is_active.is_(True))
+    if role:
+        stmt = stmt.where(User.role == role)
+    result = await db.execute(stmt.order_by(User.username))
+    return result.scalars().all()
+
+
 async def create_default_admin(db: AsyncSession) -> None:
     admin = await get_user_by_username(db, "admin")
     if admin is None:

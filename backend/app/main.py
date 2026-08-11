@@ -12,7 +12,7 @@ from app.exceptions import (
     PermissionDeniedException,
     TicketSystemException,
 )
-from app.routers import auth, categories, dispatch, notifications, reports, sla, tickets, webhooks
+from app.routers import admin, auth, categories, dispatch, notifications, reports, sla, tickets, webhooks
 
 settings = get_settings()
 
@@ -64,6 +64,7 @@ app.include_router(sla.router, prefix="/api/v1", tags=["SLA"])
 app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
 app.include_router(webhooks.router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(reports.router, prefix="/api/v1", tags=["Reports"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 
 
 @app.get("/health")
