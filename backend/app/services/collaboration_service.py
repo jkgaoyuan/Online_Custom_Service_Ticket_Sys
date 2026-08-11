@@ -122,7 +122,13 @@ async def request_assistance(
 
     await db.commit()
     await db.refresh(collaboration)
-    return collaboration
+    # Eagerly load user relationships for response serialization
+    result = await db.execute(
+        select(TicketCollaboration)
+        .where(TicketCollaboration.id == collaboration.id)
+        .options(selectinload(TicketCollaboration.from_user), selectinload(TicketCollaboration.to_user))
+    )
+    return result.scalar_one()
 
 
 async def get_collaborations(db: AsyncSession, ticket_id: int) -> list[TicketCollaboration]:
