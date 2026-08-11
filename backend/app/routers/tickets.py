@@ -6,6 +6,11 @@ from app.dependencies import get_current_user, require_role
 from app.exceptions import NotFoundException, PermissionDeniedException
 from app.models.ticket import Ticket
 from app.models.user import User
+from app.schemas.collaboration import (
+    AssistRequest,
+    CollaborationResponse,
+    TransferRequest,
+)
 from app.schemas.sla import SLASummary
 from app.schemas.ticket import (
     AssignRequest,
@@ -27,6 +32,11 @@ from app.services.ticket_service import (
 from app.services.reply_service import create_reply, get_replies_by_ticket
 from app.services.dispatch_service import auto_assign, log_manual_assign
 from app.services.sla_service import get_sla_record_by_ticket_id
+from app.services.collaboration_service import (
+    transfer_ticket,
+    request_assistance,
+    get_collaborations,
+)
 
 router = APIRouter()
 
@@ -98,7 +108,50 @@ async def get_ticket(
     response = TicketResponse.model_validate(ticket)
     if sla:
         response.sla = SLASummary.model_validate(sla)
+
+    collaborations = await get_collaborations(db, ticket_id)
+    response.collaborations = [
+        CollaborationResponse.model_validate(c) for c in collaborations
+    ]
     return response
+
+
+@router.post("/tickets/{ticket_id}/transfer", response_model=TicketResponse)
+async def transfer_ticket_endpoint(
+    ticket_id: int,
+    data: TransferRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("agent", "supervisor", "admin")),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    ticket = await transfer_ticket(
+        db, ticket_id, current_user.id, data.to_user_id, data.reason
+    )
+    return TicketResponse.model_validate(ticket)
+
+
+@router.post(
+    "/tickets/{ticket_id}/assist",
+    response_model=CollaborationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def request_assistance_endpoint(
+    ticket_id: int,
+    data: AssistRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("agent", "supervisor", "admin")),
+):
+    ticket = await get_ticket_by_id(db, ticket_id)
+    if not ticket:
+        raise NotFoundException("工单不存在")
+    await check_ticket_access(ticket, current_user)
+    collab = await request_assistance(
+        db, ticket_id, current_user.id, data.to_user_id, data.reason
+    )
+    return CollaborationResponse.model_validate(collab)
 
 
 @router.post("/tickets/{ticket_id}/replies", response_model=ReplyResponse, status_code=status.HTTP_201_CREATED)
