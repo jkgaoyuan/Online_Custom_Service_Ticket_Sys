@@ -71,7 +71,7 @@ class UserListResponse(BaseModel):
 
 class UserStats(BaseModel):
     total_tickets: int
-    resolved_tickets: int
+    closed_tickets: int
     open_tickets: int
     avg_first_resp_minutes: float | None = None
 

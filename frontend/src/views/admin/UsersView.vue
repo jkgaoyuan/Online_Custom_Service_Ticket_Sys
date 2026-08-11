@@ -169,7 +169,7 @@ const submitEdit = async () => {
       role: editForm.value.role,
     })
     editDialogVisible.value = false
-    store.fetchUsers()
+    await store.fetchUsers()
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '更新失败')
   } finally {
@@ -213,7 +213,7 @@ const toggleStatus = async (row) => {
       { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
     )
     await store.updateUser(row.id, { is_active: !row.is_active })
-    store.fetchUsers()
+    await store.fetchUsers()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(error.response?.data?.detail || '操作失败')

@@ -63,11 +63,3 @@ class AssignRequest(BaseModel):
 class SatisfactionSubmit(BaseModel):
     rating: str = Field(..., pattern="^(satisfied|neutral|dissatisfied)$")
     note: Optional[str] = Field(None)
-
-
-class SatisfactionInfo(BaseModel):
-    rating: str
-    note: Optional[str] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)

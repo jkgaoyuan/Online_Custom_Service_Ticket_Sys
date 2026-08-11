@@ -32,15 +32,25 @@ export const useUsersStore = defineStore('users', () => {
   }
 
   const updateUser = async (userId, data) => {
-    const { data: res } = await adminApi.updateUser(userId, data)
-    ElMessage.success('用户更新成功')
-    return res
+    try {
+      const { data: res } = await adminApi.updateUser(userId, data)
+      ElMessage.success('用户更新成功')
+      return res
+    } catch (error) {
+      ElMessage.error(error.response?.data?.detail || '更新用户失败')
+      throw error
+    }
   }
 
   const resetPassword = async (userId) => {
-    const { data: res } = await adminApi.resetPassword(userId)
-    ElMessage.success('密码重置成功')
-    return res
+    try {
+      const { data: res } = await adminApi.resetPassword(userId)
+      ElMessage.success('密码重置成功')
+      return res
+    } catch (error) {
+      ElMessage.error(error.response?.data?.detail || '重置密码失败')
+      throw error
+    }
   }
 
   return {

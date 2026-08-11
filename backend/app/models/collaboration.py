@@ -23,5 +23,5 @@ class TicketCollaboration(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
-    from_user: Mapped["User"] = relationship("User", foreign_keys=[from_user_id])
+    from_user: Mapped["User | None"] = relationship("User", foreign_keys=[from_user_id])
     to_user: Mapped["User"] = relationship("User", foreign_keys=[to_user_id])

@@ -135,10 +135,10 @@ async def get_user_stats(db: AsyncSession, user_id: int) -> dict:
     )
     total_tickets = total_result.scalar_one()
 
-    resolved_result = await db.execute(
+    closed_result = await db.execute(
         select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status == "closed")
     )
-    resolved_tickets = resolved_result.scalar_one()
+    closed_tickets = closed_result.scalar_one()
 
     open_result = await db.execute(
         select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status != "closed")
@@ -147,7 +147,7 @@ async def get_user_stats(db: AsyncSession, user_id: int) -> dict:
 
     return {
         "total_tickets": total_tickets,
-        "resolved_tickets": resolved_tickets,
+        "closed_tickets": closed_tickets,
         "open_tickets": open_tickets,
         "avg_first_resp_minutes": None,
     }

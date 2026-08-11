@@ -10,6 +10,7 @@ export const ticketApi = {
   submitSatisfaction: (id, data) => api.post(`/tickets/${id}/satisfaction`, data),
   transfer: (id, data) => api.post(`/tickets/${id}/transfer`, data),
   assist: (id, data) => api.post(`/tickets/${id}/assist`, data),
+  getAgents: () => api.get('/agents'),
 }
 
 export const replyApi = {

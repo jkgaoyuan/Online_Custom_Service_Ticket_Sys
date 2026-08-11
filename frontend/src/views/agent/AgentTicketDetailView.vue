@@ -52,7 +52,7 @@
       </el-form>
       <template #footer>
         <el-button @click="transferDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitTransfer">确认</el-button>
+        <el-button type="primary" :loading="transferLoading" @click="submitTransfer">确认</el-button>
       </template>
     </el-dialog>
 
@@ -70,7 +70,7 @@
       </el-form>
       <template #footer>
         <el-button @click="assistDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitAssist">确认</el-button>
+        <el-button type="primary" :loading="assistLoading" @click="submitAssist">确认</el-button>
       </template>
     </el-dialog>
 
@@ -100,7 +100,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import PriorityTag from '@/components/PriorityTag.vue'
 import ReplyBox from '@/components/ReplyBox.vue'
 import AssignSuggestionList from '@/components/AssignSuggestionList.vue'
-import { adminApi } from '@/api/admin'
+import { ticketApi } from '@/api/tickets'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -113,7 +113,8 @@ const canCollaborate = computed(() => ['agent', 'supervisor', 'admin'].includes(
 
 const transferDialogVisible = ref(false)
 const assistDialogVisible = ref(false)
-const submitting = ref(false)
+const transferLoading = ref(false)
+const assistLoading = ref(false)
 const availableAgents = ref([])
 
 const transferForm = ref({ to_user_id: null, reason: '' })
@@ -126,8 +127,8 @@ onMounted(() => {
 
 const loadAvailableAgents = async () => {
   try {
-    const { data } = await adminApi.listUsers({ role: 'agent' })
-    availableAgents.value = data.items || []
+    const { data } = await ticketApi.getAgents()
+    availableAgents.value = data || []
   } catch (error) {
     ElMessage.error('加载客服列表失败')
   }
@@ -150,7 +151,7 @@ const submitTransfer = async () => {
     ElMessage.warning('请选择目标客服')
     return
   }
-  submitting.value = true
+  transferLoading.value = true
   try {
     await store.transferTicket(store.currentTicket.id, {
       to_user_id: transferForm.value.to_user_id,
@@ -162,7 +163,7 @@ const submitTransfer = async () => {
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '转交失败')
   } finally {
-    submitting.value = false
+    transferLoading.value = false
   }
 }
 
@@ -171,7 +172,7 @@ const submitAssist = async () => {
     ElMessage.warning('请选择协助客服')
     return
   }
-  submitting.value = true
+  assistLoading.value = true
   try {
     await store.assistTicket(store.currentTicket.id, {
       to_user_id: assistForm.value.to_user_id,
@@ -183,7 +184,7 @@ const submitAssist = async () => {
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '请求协助失败')
   } finally {
-    submitting.value = false
+    assistLoading.value = false
   }
 }
 
