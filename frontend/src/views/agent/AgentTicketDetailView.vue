@@ -127,7 +127,7 @@ onMounted(() => {
 const loadAvailableAgents = async () => {
   try {
     const { data } = await adminApi.listUsers({ role: 'agent' })
-    availableAgents.value = data
+    availableAgents.value = data.items || []
   } catch (error) {
     ElMessage.error('加载客服列表失败')
   }

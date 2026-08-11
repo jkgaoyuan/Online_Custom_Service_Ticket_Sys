@@ -43,6 +43,52 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserUpdate(BaseModel):
+    username: str | None = Field(None, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
+    email: EmailStr | None = Field(None, max_length=100)
+    role: str | None = Field(None, pattern=r"^(customer|agent|supervisor|admin)$")
+    is_active: bool | None = None
+
+
+class UserListItem(BaseModel):
+    id: int
+    username: str
+    email: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    ticket_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[UserListItem]
+
+
+class UserStats(BaseModel):
+    total_tickets: int
+    resolved_tickets: int
+    open_tickets: int
+    avg_first_resp_minutes: float | None = None
+
+
+class UserDetailResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    stats: UserStats | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserLogin(BaseModel):
     username: str
     password: str
