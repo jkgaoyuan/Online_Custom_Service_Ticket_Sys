@@ -22,4 +22,13 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['tests/**/*.{test,spec}.{js,ts}'],
+    deps: {
+      inline: ['element-plus'],
+    },
+    setupFiles: ['./tests/setup.js'],
+  },
 })

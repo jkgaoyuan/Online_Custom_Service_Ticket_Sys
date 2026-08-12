@@ -3,8 +3,9 @@ import logging
 
 from celery import shared_task
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from app.database import AsyncSessionLocal
+from app.config import get_settings
 from app.schemas.email_webhook import InboundEmail
 from app.services.email_service import process_inbound_email
 
@@ -18,8 +19,21 @@ def process_inbound_email_task(payload: dict) -> None:
 
 
 async def _async_process(payload: dict) -> None:
+    """Create a fresh engine/session so this task is safe to run in any thread/process."""
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        future=True,
+    )
+    SessionLocal = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
     inbound = InboundEmail(**payload)
-    async with AsyncSessionLocal() as db:
+    async with SessionLocal() as db:
         try:
             await process_inbound_email(db, inbound)
             await db.commit()
@@ -32,3 +46,5 @@ async def _async_process(payload: dict) -> None:
             logger.exception("Failed to process inbound email: %s", inbound.message_id)
             await db.rollback()
             raise
+        finally:
+            await engine.dispose()

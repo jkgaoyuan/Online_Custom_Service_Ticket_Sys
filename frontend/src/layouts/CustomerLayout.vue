@@ -1,7 +1,7 @@
 <template>
   <el-container class="layout-container">
     <el-aside width="200px">
-      <el-menu default-active="1" router>
+      <el-menu :default-active="$route.path" router>
         <el-menu-item index="/customer/dashboard">
           <el-icon><HomeFilled /></el-icon>
           <span>仪表盘</span>

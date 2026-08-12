@@ -21,6 +21,6 @@ app.use(ElementPlus)
 import { useAuthStore } from './stores'
 
 const authStore = useAuthStore()
-authStore.initAuth()
-
-app.mount('#app')
+authStore.initAuth().then(() => {
+  app.mount('#app')
+})

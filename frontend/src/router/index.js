@@ -18,7 +18,13 @@ const routes = [
     name: 'CustomerLayout',
     component: () => import('@/layouts/CustomerLayout.vue'),
     meta: { requiresAuth: true, role: 'customer' },
+    redirect: '/customer/dashboard',
     children: [
+      {
+        path: 'dashboard',
+        name: 'CustomerDashboard',
+        component: () => import('@/views/customer/DashboardView.vue'),
+      },
       {
         path: 'tickets/new',
         name: 'CreateTicket',
@@ -42,6 +48,7 @@ const routes = [
     name: 'AgentLayout',
     component: () => import('@/layouts/AgentLayout.vue'),
     meta: { requiresAuth: true, role: 'agent' },
+    redirect: '/agent/workbench',
     children: [
       {
         path: 'workbench',
@@ -66,6 +73,7 @@ const routes = [
     name: 'AdminLayout',
     component: () => import('@/layouts/AdminLayout.vue'),
     meta: { requiresAuth: true, role: 'admin' },
+    redirect: '/admin/users',
     children: [
       {
         path: 'users',
@@ -94,7 +102,10 @@ router.beforeEach((to, from, next) => {
     const role = authStore.userRole
     if (role === 'customer') return next('/customer/dashboard')
     if (role === 'agent') return next('/agent/workbench')
-    return next('/admin/users')
+    if (role === 'admin' || role === 'supervisor') return next('/admin/users')
+    // token 存在但角色未知，清除状态并留在登录页
+    authStore.clearAuth()
+    return next()
   }
 
   // 需要认证但未登录

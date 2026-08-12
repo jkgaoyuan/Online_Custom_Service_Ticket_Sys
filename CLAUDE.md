@@ -150,9 +150,9 @@
   ## 📋 最近进度
   <!-- 由归档流程自动维护，保留最近 3 条。首次使用前留空即可。 -->
 
+  - **2026-08-13 00:10** — 完成前端 54 条测试用例可执行代码（20 文件 / 66 用例全部通过），覆盖 API Client、Store、Router、组件、页面视图；输出测试计划 `docs/testcases/04-frontend-testcases.md` 与结果报告 `docs/frontend-test-results.md`；基础设施含 Vitest + @vue/test-utils + jsdom + setup.js 全局 mock。
   - **2026-08-12 00:37** — 完成 Plan A/B/C 三个缺失功能模块全部开发、review 修复、40 测试通过，**已合并到 main 分支**（`906e8de..b761f0d` Fast-forward）。
   - **2026-08-11 21:30** — 完成 Plan B 内部协作模块 B1-B5：修正协作 model/service 问题，新增 transfer/assist API 与 10 条测试，前端工单详情页新增转交/协助弹窗与协作历史，目标回归 32/32 通过。
-  - **2026-08-11 02:35** — 使用 Subagent-Driven Development 完成 Plan A 满意度评价系统（Alembic 迁移 + API + 通知触发 + 报表聚合 + 8 测试 + 前端 UI），6 commits 全部 review 通过；Plan B 内部协作 implementer 后台运行中；Plan C 用户管理后台 brief 已准备。
 
   ---
 
