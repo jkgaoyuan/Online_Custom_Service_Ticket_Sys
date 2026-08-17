@@ -13,8 +13,10 @@ from app.exceptions import (
     TicketSystemException,
 )
 from app.routers import auth, categories, dispatch, notifications, reports, sla, tickets, webhooks
+import logging
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -26,8 +28,14 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         try:
             await create_default_admin(db)
+        except Exception as exc:
+            logger.warning("create_default_admin failed: %s", exc)
+            await db.rollback()
+
+        try:
             await ensure_default_email_category(db)
-        except Exception:
+        except Exception as exc:
+            logger.warning("ensure_default_email_category failed: %s", exc)
             await db.rollback()
     yield
 
