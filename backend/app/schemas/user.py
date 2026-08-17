@@ -57,7 +57,7 @@ class TokenResponse(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = Field(None, max_length=50)
+    username: Optional[str] = Field(None, min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
     email: Optional[str] = Field(None, max_length=100)
     role: Optional[str] = Field(None, pattern=r"^(customer|agent|supervisor|admin)$")
     is_active: Optional[bool] = None
