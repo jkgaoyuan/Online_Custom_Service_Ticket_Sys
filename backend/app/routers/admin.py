@@ -10,6 +10,7 @@ from app.models.user import User
 from app.schemas.user import (
     UserDetailResponse,
     UserListResponse,
+    UserPasswordResetResponse,
     UserResponse,
     UserStats,
     UserUpdate,
@@ -153,11 +154,11 @@ async def update_user_endpoint(
     return UserResponse.model_validate(updated)
 
 
-@router.post("/admin/users/{user_id}/reset-password")
+@router.post("/admin/users/{user_id}/reset-password", response_model=UserPasswordResetResponse)
 async def reset_password_endpoint(
     user_id: int,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
     temp_password = await reset_user_password(db, user_id)
-    return {"temp_password": temp_password}
+    return UserPasswordResetResponse(temp_password=temp_password)

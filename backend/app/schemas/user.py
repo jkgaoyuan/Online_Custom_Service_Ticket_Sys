@@ -100,3 +100,7 @@ class UserDetailResponse(BaseModel):
     stats: Optional[UserStats] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserPasswordResetResponse(BaseModel):
+    temp_password: str
