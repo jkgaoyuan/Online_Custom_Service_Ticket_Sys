@@ -59,6 +59,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - ticket-network
     logging:
@@ -80,11 +86,19 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SKIP_ALEMBIC: "true"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    command: celery -A celery_worker worker --loglevel=info
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A celery_worker inspect ping --destination celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - ticket-network
     logging:
@@ -104,6 +118,12 @@ services:
       # - "443:443"  # 启用 HTTPS 时取消注释
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - ticket-network
     logging:
