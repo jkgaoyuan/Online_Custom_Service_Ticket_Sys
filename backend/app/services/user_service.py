@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ticket import Ticket
@@ -78,14 +79,18 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
 
 
 async def update_user(db: AsyncSession, user_id: int, update_data: dict) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
     if "username" in update_data and update_data["username"] != user.username:
         dup = await db.execute(
-            select(User).where(User.username == update_data["username"], User.id != user_id)
+            select(User)
+            .where(User.username == update_data["username"], User.id != user_id)
+            .with_for_update()
         )
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="用户名已存在")
@@ -93,7 +98,9 @@ async def update_user(db: AsyncSession, user_id: int, update_data: dict) -> User
 
     if "email" in update_data and update_data["email"] != user.email:
         dup = await db.execute(
-            select(User).where(User.email == update_data["email"], User.id != user_id)
+            select(User)
+            .where(User.email == update_data["email"], User.id != user_id)
+            .with_for_update()
         )
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="邮箱已存在")
@@ -105,10 +112,14 @@ async def update_user(db: AsyncSession, user_id: int, update_data: dict) -> User
         user.role = update_data["role"]
 
     if "is_active" in update_data:
-        user.is_active = bool(update_data["is_active"])
+        user.is_active = update_data["is_active"]
 
     user.updated_at = datetime.utcnow()
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="用户名或邮箱已存在") from exc
     await db.refresh(user)
     return user
 
