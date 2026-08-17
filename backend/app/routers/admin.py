@@ -83,7 +83,7 @@ async def _get_user_stats(db: AsyncSession, user_id: int) -> UserStats:
     )
 
 
-@router.get("/admin/users", response_model=UserListResponse)
+@router.get("/users", response_model=UserListResponse)
 async def list_users_endpoint(
     role: str | None = None,
     is_active: bool | None = None,
@@ -102,7 +102,7 @@ async def list_users_endpoint(
     )
 
 
-@router.get("/admin/users/{user_id}", response_model=UserDetailResponse)
+@router.get("/users/{user_id}", response_model=UserDetailResponse)
 async def get_user_detail(
     user_id: int,
     db: AsyncSession = Depends(get_db),
@@ -130,7 +130,7 @@ async def get_user_detail(
     )
 
 
-@router.put("/admin/users/{user_id}", response_model=UserResponse)
+@router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user_endpoint(
     user_id: int,
     data: UserUpdate,
@@ -154,7 +154,7 @@ async def update_user_endpoint(
     return UserResponse.model_validate(updated)
 
 
-@router.post("/admin/users/{user_id}/reset-password", response_model=UserPasswordResetResponse)
+@router.post("/users/{user_id}/reset-password", response_model=UserPasswordResetResponse)
 async def reset_password_endpoint(
     user_id: int,
     db: AsyncSession = Depends(get_db),
