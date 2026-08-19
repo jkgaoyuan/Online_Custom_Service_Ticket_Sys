@@ -11,7 +11,7 @@
 
   - **技术栈**: 前端 Vue3 + Vite，后端 FastAPI + SQLAlchemy（请按实际项目修改）
   - **主分支**: `main`
-  - **CLAUDE.md 最后更新**: 2026-08-17
+  - **CLAUDE.md 最后更新**: 2026-08-19
   - **Git 管理**: `.claude/CLAUDE.md`、`decisions.md`、`sessions/` **必须**纳入版本控制；`.claude/settings.json`（如存在）可视情况加入 `.gitignore`
 
   ---
@@ -150,9 +150,9 @@
   ## 📋 最近进度
   <!-- 由归档流程自动维护，保留最近 3 条。首次使用前留空即可。 -->
 
+  - **2026-08-19 22:25** — 完成 Plan B 内部协作系统（转交/协助）B3-B5：协作 API + 20 后端测试 + 前端 UI，修复 TicketResponse 懒加载回归，全量 216 测试通过零回归，1 个 commit 已提交。
   - **2026-08-17 23:40** — 使用 Subagent-Driven Development 完成 Plan C 用户管理后台全部 5 个 Task（Schema → Service → Router → Tests → Frontend），经 per-task review + whole-branch review + fix 验证，8 条后端测试全部通过，前端 build 零错误，8 个 commit 已提交。
   - **2026-08-17 21:46** — 修复 Docker 部署 3 个关键问题：worker 启动失败（alembic 竞争 + entrypoint 命令透传）、compose healthcheck 缺失、默认 admin 创建失败（bcrypt 4.1+ 与 passlib 1.7.4 不兼容）。3 个 commit 已提交，待用户 rebuild 验证。
-  - **2026-08-11 02:35** — 使用 Subagent-Driven Development 完成 Plan A 满意度评价系统（Alembic 迁移 + API + 通知触发 + 报表聚合 + 8 测试 + 前端 UI），6 commits 全部 review 通过；Plan B 内部协作 implementer 后台运行中；Plan C 用户管理后台 brief 已准备。
 
   ---
 
@@ -164,8 +164,7 @@
 
   | ID | 事项 | 优先级 | 状态 | 引入会话 | 备注 |
   |----|------|--------|------|----------|------|
-  | 内部协作（转交/协助） | P1 | [~] | 2026-08-11-0235 | Plan B B1-B2 已完成，B3-B5 仍待完成；C4 中已创建 collaborations.py router |
-  | 用户管理后台 | P1 | [x] | 2026-08-11-0235 | Plan C 全部 5 Task 已完成，8 测试通过，前端 build 成功 |
+  | 内部协作（转交/协助） | P1 | [x] | 2026-08-11-0235 | Plan B B3-B5 已完成，20 测试通过，前端 build 成功，1 commit 已提交 |
 
   **状态符号说明**：沿用"当前进度"统一符号体系 — `[x]` 已完成、`[~]` 进行中、`[ ]` 待开始、`[-]` 已放弃。
 
