@@ -4,6 +4,8 @@
 
 ---
 
+- **2026-08-17 21:46** — 修复 Docker 部署 3 个关键问题：worker 启动失败（alembic 竞争 + entrypoint 命令透传）、compose healthcheck 缺失、默认 admin 创建失败（bcrypt 4.1+ 与 passlib 1.7.4 不兼容）。3 个 commit 已提交，待用户 rebuild 验证。
+
 - **2026-08-13 00:10** — 完成前端 54 条测试用例可执行代码（20 文件 / 66 用例全部通过），覆盖 API Client、Store、Router、组件、页面视图；输出测试计划 `docs/testcases/04-frontend-testcases.md` 与结果报告 `docs/frontend-test-results.md`；基础设施含 Vitest + @vue/test-utils + jsdom + setup.js 全局 mock。
 
 - **2026-08-12 00:37** — 完成 Plan A/B/C 三个缺失功能模块全部开发、review 修复、40 测试通过，**已合并到 main 分支**（`906e8de..b761f0d` Fast-forward）。
