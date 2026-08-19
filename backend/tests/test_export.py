@@ -150,3 +150,56 @@ async def test_export_task_unknown_report_type_raises(db):
             start_date=None,
             end_date=None,
         )
+
+
+# API-EXP-401: empty data export creates a file with a fallback message
+async def test_export_task_empty_data_creates_file_with_fallback(db):
+    task_id = str(uuid.uuid4())
+    await _async_generate_report_export(
+        task_id=task_id,
+        report_type="category_distribution",
+        format="csv",
+        start_date="2020-01-01",
+        end_date="2020-01-31",
+    )
+
+    settings = get_settings()
+    file_path = Path(settings.EXPORT_DIR) / f"{task_id}.csv"
+    assert file_path.exists()
+    content = file_path.read_text(encoding="utf-8")
+    assert "提示" in content
+    assert "所选时间范围内没有数据" in content
+
+
+# API-EXP-402: failed export writes a marker file and re-raises
+async def test_export_task_failed_marker_created_on_error(db):
+    task_id = str(uuid.uuid4())
+    with pytest.raises(ValueError, match="Unknown report_type"):
+        await _async_generate_report_export(
+            task_id=task_id,
+            report_type="invalid_type",
+            format="csv",
+            start_date=None,
+            end_date=None,
+        )
+
+    settings = get_settings()
+    failed_marker = Path(settings.EXPORT_DIR) / f"{task_id}.failed"
+    assert failed_marker.exists()
+    assert "Unknown report_type" in failed_marker.read_text(encoding="utf-8")
+
+
+# API-EXP-403: status endpoint reports failed when marker file exists
+async def test_export_status_returns_failed_when_marker_exists(client, admin_auth_headers):
+    task_id = str(uuid.uuid4())
+    settings = get_settings()
+    failed_marker = Path(settings.EXPORT_DIR) / f"{task_id}.failed"
+    failed_marker.parent.mkdir(parents=True, exist_ok=True)
+    failed_marker.write_text("export error", encoding="utf-8")
+
+    r = await client.get(f"/api/v1/admin/reports/export/{task_id}", headers=admin_auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["task_id"] == task_id
+    assert data["status"] == "failed"
+    assert data["download_url"] is None

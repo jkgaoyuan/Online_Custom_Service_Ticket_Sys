@@ -104,8 +104,11 @@ const handleExport = async (format) => {
         const data = await store.pollExportStatus(taskId)
         if (data.status === 'completed') {
           clearInterval(interval)
-        }
-        if (attempts >= maxAttempts && data.status !== 'completed') {
+        } else if (data.status === 'failed') {
+          clearInterval(interval)
+          ElMessage.error('导出失败，请重试')
+          store.exportTask = null
+        } else if (attempts >= maxAttempts) {
           clearInterval(interval)
           ElMessage.error('导出超时，请重试')
           store.exportTask = null
@@ -125,7 +128,7 @@ const downloadFile = async () => {
   const url = store.exportTask?.downloadUrl
   if (!url) return
   try {
-    const res = await api.get(url, { responseType: 'blob' })
+    const res = await api.get(url.replace(/^\/api\/v1/, ''), { responseType: 'blob' })
     const downloadUrl = URL.createObjectURL(res.data)
     const a = document.createElement('a')
     a.href = downloadUrl

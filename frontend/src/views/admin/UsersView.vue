@@ -6,14 +6,14 @@
     <div class="filter-bar">
       <div class="filter-left">
         <el-select v-model="filterRole" placeholder="角色" clearable @change="handleFilter">
-          <el-option label="全部" value="" />
+          <el-option label="全部" :value="null" />
           <el-option label="客户" value="customer" />
           <el-option label="客服" value="agent" />
           <el-option label="主管" value="supervisor" />
           <el-option label="管理员" value="admin" />
         </el-select>
         <el-select v-model="filterStatus" placeholder="状态" clearable @change="handleFilter">
-          <el-option label="全部" value="" />
+          <el-option label="全部" :value="null" />
           <el-option label="启用" :value="true" />
           <el-option label="禁用" :value="false" />
         </el-select>
@@ -141,8 +141,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const usersStore = useUsersStore()
 
-const filterRole = ref('')
-const filterStatus = ref('')
+const filterRole = ref(null)
+const filterStatus = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 
@@ -174,7 +174,7 @@ function formatDate(d) {
 async function handleFilter() {
   const params = { page: currentPage.value, page_size: pageSize.value }
   if (filterRole.value) params.role = filterRole.value
-  if (filterStatus.value !== '') params.is_active = filterStatus.value
+  if (filterStatus.value !== null) params.is_active = filterStatus.value
   await usersStore.fetchUsers(params)
 }
 

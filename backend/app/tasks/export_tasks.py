@@ -51,30 +51,37 @@ async def _async_generate_report_export(task_id, report_type, format, start_date
     export_dir = Path(settings.EXPORT_DIR)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    async with AsyncSessionLocal() as db:
-        func = REPORT_TYPE_TO_FUNC.get(report_type)
-        if func is None:
-            raise ValueError(f"Unknown report_type: {report_type}")
+    try:
+        async with AsyncSessionLocal() as db:
+            func = REPORT_TYPE_TO_FUNC.get(report_type)
+            if func is None:
+                raise ValueError(f"Unknown report_type: {report_type}")
 
-        if report_type == "overview":
-            data = await func(db)
-        elif report_type == "trend":
-            # Default granularity for export is day
-            data = await func(db, "day", start_date, end_date)
+            if report_type == "overview":
+                data = await func(db)
+            elif report_type == "trend":
+                # Default granularity for export is day
+                data = await func(db, "day", start_date, end_date)
+            else:
+                data = await func(db, start_date, end_date)
+
+        if report_type == "overview" or report_type == "satisfaction":
+            # Single dict -> list of one
+            rows = [data]
         else:
-            data = await func(db, start_date, end_date)
+            rows = data if isinstance(data, list) else [data]
 
-    if report_type == "overview" or report_type == "satisfaction":
-        # Single dict -> list of one
-        rows = [data]
-    else:
-        rows = data if isinstance(data, list) else [data]
+        rows = _sanitize_rows(rows)
+        if not rows:
+            rows = [{"提示": "所选时间范围内没有数据"}]
+        df = pd.DataFrame(rows)
 
-    rows = _sanitize_rows(rows)
-    df = pd.DataFrame(rows)
-
-    file_path = export_dir / f"{task_id}.{format}"
-    if format == "xlsx":
-        df.to_excel(file_path, index=False, engine="openpyxl")
-    else:
-        df.to_csv(file_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+        file_path = export_dir / f"{task_id}.{format}"
+        if format == "xlsx":
+            df.to_excel(file_path, index=False, engine="openpyxl")
+        else:
+            df.to_csv(file_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    except Exception as exc:
+        failed_marker = export_dir / f"{task_id}.failed"
+        failed_marker.write_text(str(exc), encoding="utf-8")
+        raise

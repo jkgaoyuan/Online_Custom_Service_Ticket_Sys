@@ -116,6 +116,9 @@ async def get_export_status(
 
     settings = get_settings()
     export_dir = Path(settings.EXPORT_DIR)
+    failed_marker = export_dir / f"{task_id}.failed"
+    if failed_marker.exists():
+        return {"task_id": task_id, "status": "failed", "download_url": None}
     for fmt in ("xlsx", "csv"):
         file_path = export_dir / f"{task_id}.{fmt}"
         if file_path.exists():
