@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+from app.schemas.collaboration import CollaborationResponse
 from app.schemas.sla import SLASummary
 
 
@@ -49,6 +50,10 @@ class TicketResponse(BaseModel):
     sla: Optional[SLASummary] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TicketDetailResponse(TicketResponse):
+    collaborations: Optional[list[CollaborationResponse]] = None
 
 
 class StatusUpdateRequest(BaseModel):

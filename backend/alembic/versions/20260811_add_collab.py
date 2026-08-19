@@ -23,10 +23,11 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), primary_key=True, index=True),
         sa.Column('ticket_id', sa.Integer(), sa.ForeignKey('tickets.id', ondelete='CASCADE'), nullable=False, index=True),
         sa.Column('type', sa.String(20), nullable=False),
-        sa.Column('from_user_id', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('to_user_id', sa.Integer(), sa.ForeignKey('users.id'), nullable=False, index=True),
+        sa.Column('from_user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='RESTRICT'), nullable=False, index=True),
+        sa.Column('to_user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='RESTRICT'), nullable=False, index=True),
         sa.Column('reason', sa.Text(), nullable=True),
         sa.Column('created_at', sa.DateTime(), default=sa.func.now(), nullable=False),
+        sa.CheckConstraint("type IN ('transfer', 'assist')", name='ck_collaboration_type'),
     )
 
 

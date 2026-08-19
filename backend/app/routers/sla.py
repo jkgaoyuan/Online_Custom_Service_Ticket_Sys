@@ -22,7 +22,7 @@ async def get_ticket_sla(
     ticket = await get_ticket_by_id(db, ticket_id)
     if not ticket:
         raise NotFoundException("工单不存在")
-    await check_ticket_access(ticket, current_user)
+    await check_ticket_access(db, ticket, current_user)
 
     sla = await get_sla_record_by_ticket_id(db, ticket_id)
     if not sla:

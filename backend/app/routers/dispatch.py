@@ -88,7 +88,7 @@ async def suggest_assignees_endpoint(
     ticket = await get_ticket_by_id(db, ticket_id)
     if not ticket:
         raise NotFoundException("工单不存在")
-    await check_ticket_access(ticket, current_user)
+    await check_ticket_access(db, ticket, current_user)
     return await suggest_assignees(db, ticket, top_n=5)
 
 
@@ -101,7 +101,7 @@ async def auto_assign_endpoint(
     ticket = await get_ticket_by_id(db, ticket_id)
     if not ticket:
         raise NotFoundException("工单不存在")
-    await check_ticket_access(ticket, current_user)
+    await check_ticket_access(db, ticket, current_user)
     agent = await auto_assign(db, ticket)
     await db.commit()
     await db.refresh(ticket)

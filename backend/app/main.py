@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,8 +13,7 @@ from app.exceptions import (
     PermissionDeniedException,
     TicketSystemException,
 )
-from app.routers import admin, auth, categories, dispatch, notifications, reports, sla, tickets, webhooks
-import logging
+from app.routers import admin, auth, categories, collaborations, dispatch, notifications, reports, sla, tickets, webhooks
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -29,13 +29,13 @@ async def lifespan(app: FastAPI):
         try:
             await create_default_admin(db)
         except Exception as exc:
-            logger.warning("create_default_admin failed: %s", exc)
+            logger.warning("create_default_admin failed: %s", exc, exc_info=True)
             await db.rollback()
 
         try:
             await ensure_default_email_category(db)
         except Exception as exc:
-            logger.warning("ensure_default_email_category failed: %s", exc)
+            logger.warning("ensure_default_email_category failed: %s", exc, exc_info=True)
             await db.rollback()
     yield
 
@@ -68,11 +68,12 @@ app.include_router(notifications.router, prefix="/api/v1", tags=["Notifications"
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
 app.include_router(tickets.router, prefix="/api/v1", tags=["Tickets"])
+app.include_router(collaborations.router, prefix="/api/v1", tags=["Collaborations"])
 app.include_router(sla.router, prefix="/api/v1", tags=["SLA"])
 app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
 app.include_router(webhooks.router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(reports.router, prefix="/api/v1", tags=["Reports"])
-app.include_router(admin.router, prefix="/api/v1", tags=["Admin"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 
 
 @app.get("/health")

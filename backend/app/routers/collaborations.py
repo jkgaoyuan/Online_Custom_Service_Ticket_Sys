@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
@@ -8,6 +10,7 @@ from app.exceptions import (
     PermissionDeniedException,
     ValidationException,
 )
+from app.models.collaboration import TicketCollaboration
 from app.models.user import User
 from app.routers.tickets import check_ticket_access
 from app.schemas.collaboration import CollaborationCreate, CollaborationResponse
@@ -61,6 +64,13 @@ async def request_assistance_endpoint(
     collab = await request_assistance(
         db, ticket_id, current_user.id, data.to_user_id, data.reason
     )
+    # Eager load relationships for response serialization
+    result = await db.execute(
+        select(TicketCollaboration)
+        .where(TicketCollaboration.id == collab.id)
+        .options(selectinload(TicketCollaboration.from_user), selectinload(TicketCollaboration.to_user))
+    )
+    collab = result.scalar_one()
     return CollaborationResponse.model_validate(collab)
 
 

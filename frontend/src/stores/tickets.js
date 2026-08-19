@@ -71,9 +71,33 @@ export const useTicketsStore = defineStore('tickets', () => {
     return data
   }
 
+  const transferTicket = async (ticketId, payload) => {
+    const { data } = await ticketApi.transfer(ticketId, payload)
+    currentTicket.value = data
+    return data
+  }
+
+  const assistTicket = async (ticketId, payload) => {
+    const { data } = await ticketApi.assist(ticketId, payload)
+    if (currentTicket.value) {
+      currentTicket.value.collaborations = currentTicket.value.collaborations || []
+      currentTicket.value.collaborations.unshift(data)
+    }
+    return data
+  }
+
+  const loadCollaborations = async (ticketId) => {
+    const { data } = await ticketApi.getCollaborations(ticketId)
+    if (currentTicket.value) {
+      currentTicket.value.collaborations = data
+    }
+    return data
+  }
+
   return {
     tickets, currentTicket, replies, categories, pagination, loading,
     fetchCategories, fetchTickets, fetchTicket, fetchReplies,
     createTicket, replyTicket, updateStatus, assignTicket, submitSatisfaction,
+    transferTicket, assistTicket, loadCollaborations,
   }
 })
