@@ -4,6 +4,8 @@
 
 ---
 
+- **2026-08-17 23:40** — 使用 Subagent-Driven Development 完成 Plan C 用户管理后台全部 5 个 Task（Schema → Service → Router → Tests → Frontend），经 per-task review + whole-branch review + fix 验证，8 条后端测试全部通过，前端 build 零错误，8 个 commit 已提交。
+
 - **2026-08-17 21:46** — 修复 Docker 部署 3 个关键问题：worker 启动失败（alembic 竞争 + entrypoint 命令透传）、compose healthcheck 缺失、默认 admin 创建失败（bcrypt 4.1+ 与 passlib 1.7.4 不兼容）。3 个 commit 已提交，待用户 rebuild 验证。
 
 - **2026-08-13 00:10** — 完成前端 54 条测试用例可执行代码（20 文件 / 66 用例全部通过），覆盖 API Client、Store、Router、组件、页面视图；输出测试计划 `docs/testcases/04-frontend-testcases.md` 与结果报告 `docs/frontend-test-results.md`；基础设施含 Vitest + @vue/test-utils + jsdom + setup.js 全局 mock。
