@@ -4,6 +4,8 @@
 
 ---
 
+- **2026-08-19 22:25** — 完成 Plan B 内部协作系统（转交/协助）B3-B5：协作 API + 20 后端测试 + 前端 UI，修复 TicketResponse 懒加载回归，全量 216 测试通过零回归，1 个 commit 已提交。
+
 - **2026-08-17 23:40** — 使用 Subagent-Driven Development 完成 Plan C 用户管理后台全部 5 个 Task（Schema → Service → Router → Tests → Frontend），经 per-task review + whole-branch review + fix 验证，8 条后端测试全部通过，前端 build 零错误，8 个 commit 已提交。
 
 - **2026-08-17 21:46** — 修复 Docker 部署 3 个关键问题：worker 启动失败（alembic 竞争 + entrypoint 命令透传）、compose healthcheck 缺失、默认 admin 创建失败（bcrypt 4.1+ 与 passlib 1.7.4 不兼容）。3 个 commit 已提交，待用户 rebuild 验证。
