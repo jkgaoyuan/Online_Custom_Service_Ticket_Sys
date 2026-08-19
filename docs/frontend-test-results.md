@@ -247,6 +247,69 @@ test: {
 
 ---
 
+## 通用测试数据库隔离规范（后端安全红线）
+
+> **适用场景**: 任何使用 SQLAlchemy + pytest 的后端项目，防止自动化测试误连生产/开发数据库导致数据丢失。
+
+### 问题描述
+
+如果 `conftest.py` 直接复用业务层的 `app.database.engine`，而 `engine` 又读取了 `.env` 中的 `DATABASE_URL`，测试中的 `drop_all`/`create_all` 会直接操作生产/开发数据库，导致：
+- 系统初始管理员被删除
+- 所有业务数据被清空
+- 表结构被重建（外键约束丢失等）
+
+### 根因
+
+| 环节 | 错误做法 | 后果 |
+|------|---------|------|
+| 数据库引擎 | `from app.database import engine` 直接复用 | 使用 `.env` 中的生产连接 |
+| 环境变量 | 没有覆盖 `DATABASE_URL` | `get_settings()` 读取到生产地址 |
+| 清理策略 | `setup_db` 使用 `drop_all` | 生产数据全部丢失 |
+
+### 通用解决方案
+
+在 `tests/conftest.py` 的**第一行**（任何业务模块 `import` 之前）强制覆盖数据库连接：
+
+```python
+import os
+
+# === 安全红线：测试必须连接独立数据库 ===
+os.environ["DATABASE_URL"] = "<your-test-db-url>"
+
+# 之后才能导入业务模块
+from app.database import AsyncSessionLocal, Base, engine
+from app.main import app
+```
+
+**不同数据库的推荐配置**:
+
+| 数据库类型 | 测试数据库 URL 示例 | 适用场景 |
+|-----------|-------------------|---------|
+| PostgreSQL | `postgresql+asyncpg://user:pass@localhost:5432/<project>_test_db` | 与生产同类型，零语法差异 |
+| MySQL | `mysql+aiomysql://user:pass@localhost:3306/<project>_test_db` | 与生产同类型 |
+| SQLite (内存) | `sqlite+aiosqlite:///:memory:` | 轻量快速，但需确认无 PG/MySQL 特有语法 |
+
+### 检查清单（Code Review 必检项）
+
+- [ ] `conftest.py` 中存在 `os.environ["DATABASE_URL"] = ...` 覆盖逻辑
+- [ ] 环境变量覆盖位于**所有业务模块 import 之前**
+- [ ] 测试数据库 URL 与生产数据库 URL **不同库名/不同实例**
+- [ ] 新成员首次运行 `pytest` 前，确认本地已创建测试数据库
+- [ ] CI/CD 使用独立的数据库服务/容器，禁止复用 staging/production
+
+### 验证方法
+
+```bash
+# 1. 运行测试
+pytest
+
+# 2. 验证生产数据库数据未被触碰
+psql <production-url> -c "SELECT count(*) FROM users;"
+# 预期：数据量与测试前一致
+```
+
+---
+
 ## 未覆盖说明
 
 以下用例因组件当前实现不包含对应 UI 元素而**未测试**:
