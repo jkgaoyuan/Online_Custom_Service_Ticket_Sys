@@ -1,6 +1,10 @@
 from sqlalchemy import select
 
+from app.models.category import Category
+from app.models.ticket import Ticket
 from app.models.user import User
+from app.schemas.ticket import TicketCreate
+from app.services.ticket_service import create_ticket
 from app.utils.security import get_password_hash, verify_password
 
 
@@ -113,3 +117,160 @@ async def test_admin_update_self_role_400(client, admin_auth_headers, db):
     )
     assert r.status_code == 400
     assert "不能修改自己的角色" in r.json()["detail"]
+
+
+# === USR-009 ~ USR-014: 缺失测试补充 ===
+
+# USR-009: get_user_detail 用户不存在返回 404
+async def test_get_user_detail_not_found_404(client, admin_auth_headers, db):
+    r = await client.get(
+        "/api/v1/admin/users/999999",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 404
+    assert "用户不存在" in r.json()["detail"]
+
+
+# USR-010: get_user_detail supervisor 查看非 agent 用户 403
+async def test_supervisor_get_user_detail_non_agent_403(client, supervisor_auth_headers, db):
+    customer = User(
+        username="detail_customer",
+        email="detail_customer@test.com",
+        password_hash=get_password_hash("p"),
+        role="customer",
+    )
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+
+    r = await client.get(
+        f"/api/v1/admin/users/{customer.id}",
+        headers=supervisor_auth_headers,
+    )
+    assert r.status_code == 403
+    assert "无权查看该用户" in r.json()["detail"]
+
+
+# USR-011: get_user_detail 返回 stats 统计
+async def test_get_user_detail_stats_200(client, admin_auth_headers, db):
+    agent = User(
+        username="stats_agent",
+        email="stats_agent@test.com",
+        password_hash=get_password_hash("p"),
+        role="agent",
+    )
+    db.add(agent)
+    customer = User(
+        username="stats_customer",
+        email="stats_customer@test.com",
+        password_hash=get_password_hash("p"),
+        role="customer",
+    )
+    db.add(customer)
+    await db.commit()
+    await db.refresh(agent)
+    await db.refresh(customer)
+
+    category = Category(name="测试", code="test", default_priority="P2")
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+
+    open_data = TicketCreate(
+        title="Open Ticket",
+        description="Desc",
+        category_id=category.id,
+        priority="P2",
+        source="web",
+        assignee_id=agent.id,
+    )
+    open_ticket = await create_ticket(db, open_data, customer.id)
+
+    resolved_data = TicketCreate(
+        title="Resolved Ticket",
+        description="Desc",
+        category_id=category.id,
+        priority="P2",
+        source="web",
+        assignee_id=agent.id,
+    )
+    resolved_ticket = await create_ticket(db, resolved_data, customer.id)
+    resolved_ticket.status = "resolved"
+    await db.commit()
+    await db.refresh(resolved_ticket)
+
+    r = await client.get(
+        f"/api/v1/admin/users/{agent.id}",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["stats"] is not None
+    assert data["stats"]["total_tickets"] == 2
+    assert data["stats"]["resolved_tickets"] == 1
+    assert data["stats"]["open_tickets"] == 1
+
+
+# USR-012: supervisor 修改非 agent 用户 403
+async def test_supervisor_update_non_agent_403(client, supervisor_auth_headers, db):
+    customer = User(
+        username="upd_customer",
+        email="upd_customer@test.com",
+        password_hash=get_password_hash("p"),
+        role="customer",
+    )
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+
+    body = {"username": "should_fail"}
+    r = await client.put(
+        f"/api/v1/admin/users/{customer.id}",
+        headers=supervisor_auth_headers,
+        json=body,
+    )
+    assert r.status_code == 403
+    assert "无权修改该用户" in r.json()["detail"]
+
+
+# USR-013: supervisor 设置角色为非 agent 403
+async def test_supervisor_update_role_to_non_agent_403(client, supervisor_auth_headers, db):
+    agent = User(
+        username="role_agent",
+        email="role_agent@test.com",
+        password_hash=get_password_hash("p"),
+        role="agent",
+    )
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
+
+    body = {"role": "customer"}
+    r = await client.put(
+        f"/api/v1/admin/users/{agent.id}",
+        headers=supervisor_auth_headers,
+        json=body,
+    )
+    assert r.status_code == 403
+    assert "只能设置角色为 agent" in r.json()["detail"]
+
+
+# USR-014: get_user_detail 返回无 stats（customer 角色）
+async def test_get_user_detail_customer_no_stats_200(client, admin_auth_headers, db):
+    customer = User(
+        username="no_stats_customer",
+        email="no_stats_customer@test.com",
+        password_hash=get_password_hash("p"),
+        role="customer",
+    )
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+
+    r = await client.get(
+        f"/api/v1/admin/users/{customer.id}",
+        headers=admin_auth_headers,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["stats"] is None
