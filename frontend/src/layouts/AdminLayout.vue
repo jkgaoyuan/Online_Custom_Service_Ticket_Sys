@@ -1,12 +1,12 @@
 <template>
   <el-container class="layout-container">
     <el-aside width="200px">
-      <el-menu default-active="1">
-        <el-menu-item index="1">
+      <el-menu :default-active="$route.path" router>
+        <el-menu-item index="/admin/users">
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
-        <el-menu-item index="2" @click="$router.push('/admin/reports')">
+        <el-menu-item index="/admin/reports">
           <el-icon><TrendCharts /></el-icon>
           <span>数据报表</span>
         </el-menu-item>

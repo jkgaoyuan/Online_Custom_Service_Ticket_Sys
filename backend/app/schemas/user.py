@@ -25,7 +25,7 @@ class UserCreate(UserBase):
 
 class UserCreateInternal(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
-    role: str = Field(..., pattern=r"^(agent|supervisor|admin)$")
+    role: str = Field(..., pattern=r"^(customer|agent|supervisor|admin)$")
 
     @field_validator("password")
     @classmethod

@@ -28,5 +28,10 @@ export const useUsersStore = defineStore('users', () => {
     return response.data
   }
 
-  return { users, total, loading, fetchUsers, updateUser, resetPassword }
+  async function createUser(data) {
+    const response = await api.post('/auth/users', data)
+    return response.data
+  }
+
+  return { users, total, loading, fetchUsers, updateUser, resetPassword, createUser }
 })

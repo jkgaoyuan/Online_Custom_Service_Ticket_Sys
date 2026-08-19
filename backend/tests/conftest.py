@@ -1,3 +1,8 @@
+import os
+
+# 强制使用独立的测试数据库，避免污染生产/开发数据
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://ticket_user:ticket_pass@localhost:5432/ticket_test_db"
+
 from contextlib import asynccontextmanager
 from datetime import datetime
 
