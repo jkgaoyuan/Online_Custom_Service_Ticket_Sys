@@ -5,14 +5,14 @@
     <!-- 筛选区域 -->
     <div class="filter-bar">
       <div class="filter-left">
-        <el-select v-model="filterRole" placeholder="角色" style="width: 160px" @change="handleFilter">
+        <el-select v-model="filterRole" placeholder="角色" class="filter-select" @change="handleFilter">
           <el-option label="全部" value="all" />
           <el-option label="客户" value="customer" />
           <el-option label="客服" value="agent" />
           <el-option label="主管" value="supervisor" />
           <el-option label="管理员" value="admin" />
         </el-select>
-        <el-select v-model="filterStatus" placeholder="状态" style="width: 160px" @change="handleFilter">
+        <el-select v-model="filterStatus" placeholder="状态" class="filter-select" @change="handleFilter">
           <el-option label="全部" value="all" />
           <el-option label="启用" value="true" />
           <el-option label="禁用" value="false" />
@@ -278,6 +278,7 @@ onMounted(() => handleFilter())
 .users-management { padding: 24px; }
 .filter-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .filter-left { display: flex; gap: 12px; }
+.filter-select { width: 160px; }
 .warning-text { color: #e6a23c; font-size: 13px; margin-top: 8px; }
 .temp-password-box { margin-top: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px; }
 .temp-password-box code { font-size: 16px; font-weight: bold; color: #409eff; }
