@@ -123,6 +123,7 @@ const assistForm = ref({ to_user_id: null, reason: '' })
 onMounted(() => {
   store.fetchTicket(route.params.id)
   store.fetchReplies(route.params.id)
+  store.loadCollaborations(route.params.id)
 })
 
 const loadAvailableAgents = async () => {

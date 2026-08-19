@@ -86,10 +86,18 @@ export const useTicketsStore = defineStore('tickets', () => {
     return data
   }
 
+  const loadCollaborations = async (ticketId) => {
+    const { data } = await ticketApi.getCollaborations(ticketId)
+    if (currentTicket.value) {
+      currentTicket.value.collaborations = data
+    }
+    return data
+  }
+
   return {
     tickets, currentTicket, replies, categories, pagination, loading,
     fetchCategories, fetchTickets, fetchTicket, fetchReplies,
     createTicket, replyTicket, updateStatus, assignTicket, submitSatisfaction,
-    transferTicket, assistTicket,
+    transferTicket, assistTicket, loadCollaborations,
   }
 })

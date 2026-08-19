@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+
 from app.schemas.collaboration import CollaborationResponse
 from app.schemas.sla import SLASummary
 
@@ -47,9 +48,12 @@ class TicketResponse(BaseModel):
     satisfaction_note: Optional[str] = None
     satisfaction_at: Optional[datetime] = None
     sla: Optional[SLASummary] = None
-    collaborations: Optional[list[CollaborationResponse]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TicketDetailResponse(TicketResponse):
+    collaborations: Optional[list[CollaborationResponse]] = None
 
 
 class StatusUpdateRequest(BaseModel):
@@ -63,3 +67,11 @@ class AssignRequest(BaseModel):
 class SatisfactionSubmit(BaseModel):
     rating: str = Field(..., pattern="^(satisfied|neutral|dissatisfied)$")
     note: Optional[str] = Field(None)
+
+
+class SatisfactionInfo(BaseModel):
+    rating: str
+    note: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

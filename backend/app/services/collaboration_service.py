@@ -28,6 +28,16 @@ async def transfer_ticket(
     if ticket is None:
         raise NotFoundException("工单不存在")
 
+    # Only current assignee can transfer (supervisor/admin bypass)
+    from_user_result = await db.execute(select(User).where(User.id == from_user_id))
+    from_user = from_user_result.scalar_one()
+    if from_user.role not in ("supervisor", "admin") and ticket.assignee_id != from_user_id:
+        raise ValidationException("只有当前处理人才能执行此操作")
+
+    # Cannot transfer to self
+    if from_user_id == to_user_id:
+        raise ValidationException("不能转交/协助给自己")
+
     # Validate target is active agent
     user_result = await db.execute(select(User).where(User.id == to_user_id))
     target_user = user_result.scalar_one_or_none()
@@ -67,6 +77,7 @@ async def transfer_ticket(
 
     await db.commit()
     await db.refresh(ticket)
+    await db.refresh(collaboration)
     return ticket
 
 
@@ -82,6 +93,16 @@ async def request_assistance(
     ticket = ticket_result.scalar_one_or_none()
     if ticket is None:
         raise NotFoundException("工单不存在")
+
+    # Only current assignee can request assistance (supervisor/admin bypass)
+    from_user_result = await db.execute(select(User).where(User.id == from_user_id))
+    from_user = from_user_result.scalar_one()
+    if from_user.role not in ("supervisor", "admin") and ticket.assignee_id != from_user_id:
+        raise ValidationException("只有当前处理人才能执行此操作")
+
+    # Cannot assist self
+    if from_user_id == to_user_id:
+        raise ValidationException("不能转交/协助给自己")
 
     # Validate target is active agent
     user_result = await db.execute(select(User).where(User.id == to_user_id))

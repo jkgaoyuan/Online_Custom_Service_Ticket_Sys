@@ -1,26 +1,90 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_role
-from app.exceptions import PermissionDeniedException
+from app.models.ticket import Ticket
+from app.models.ticket_reply import TicketReply
 from app.models.user import User
 from app.schemas.user import (
-    PasswordResetResponse,
     UserDetailResponse,
-    UserListItem,
     UserListResponse,
+    UserPasswordResetResponse,
     UserResponse,
     UserStats,
     UserUpdate,
 )
-from app.services.user_service import get_user_by_id, get_user_stats, list_users, reset_user_password, update_user
+from app.services.user_service import (
+    get_user_by_id,
+    list_users,
+    reset_user_password,
+    update_user,
+)
 
 router = APIRouter()
 
 
+async def _get_user_stats(db: AsyncSession, user_id: int) -> UserStats:
+    """Inline agent stats because report_service.get_agent_stats does not exist."""
+    total_result = await db.execute(
+        select(func.count(Ticket.id)).where(Ticket.assignee_id == user_id)
+    )
+    total_tickets = total_result.scalar() or 0
+
+    resolved_result = await db.execute(
+        select(func.count(Ticket.id)).where(
+            Ticket.assignee_id == user_id, Ticket.status == "resolved"
+        )
+    )
+    resolved_tickets = resolved_result.scalar() or 0
+
+    open_result = await db.execute(
+        select(func.count(Ticket.id)).where(
+            Ticket.assignee_id == user_id, Ticket.status == "open"
+        )
+    )
+    open_tickets = open_result.scalar() or 0
+
+    earliest_reply_subq = (
+        select(
+            TicketReply.ticket_id,
+            func.min(TicketReply.created_at).label("first_reply_at"),
+        )
+        .where(TicketReply.is_internal.is_(False))
+        .group_by(TicketReply.ticket_id)
+        .subquery()
+    )
+
+    avg_first_resp_result = await db.execute(
+        select(
+            func.avg(
+                func.extract(
+                    "epoch", earliest_reply_subq.c.first_reply_at - Ticket.created_at
+                )
+            )
+            / 60
+        )
+        .join(
+            earliest_reply_subq,
+            earliest_reply_subq.c.ticket_id == Ticket.id,
+        )
+        .where(Ticket.assignee_id == user_id)
+    )
+    avg_first_resp_minutes = avg_first_resp_result.scalar()
+    if avg_first_resp_minutes is None:
+        avg_first_resp_minutes = 0.0
+
+    return UserStats(
+        total_tickets=total_tickets,
+        resolved_tickets=resolved_tickets,
+        open_tickets=open_tickets,
+        avg_first_resp_minutes=round(avg_first_resp_minutes, 2),
+    )
+
+
 @router.get("/users", response_model=UserListResponse)
-async def get_users(
+async def list_users_endpoint(
     role: str | None = None,
     is_active: bool | None = None,
     page: int = 1,
@@ -28,23 +92,18 @@ async def get_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
 ):
-    if current_user.role == "supervisor":
-        if role is not None and role != "agent":
-            raise PermissionDeniedException("主管只能查看客服用户")
+    if current_user.role == "supervisor" and role is None:
         role = "agent"
+    if current_user.role == "supervisor" and role and role != "agent":
+        raise HTTPException(status_code=403, detail="无权查看该角色用户")
 
-    result = await list_users(db, role=role, is_active=is_active, page=page, page_size=page_size)
-    items = [UserListItem.model_validate(item) for item in result["items"]]
-    return UserListResponse(
-        total=result["total"],
-        page=result["page"],
-        page_size=result["page_size"],
-        items=items,
+    return await list_users(
+        db, role=role, is_active=is_active, page=page, page_size=page_size
     )
 
 
 @router.get("/users/{user_id}", response_model=UserDetailResponse)
-async def get_user(
+async def get_user_detail(
     user_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
@@ -52,15 +111,12 @@ async def get_user(
     user = await get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-
     if current_user.role == "supervisor" and user.role != "agent":
-        raise PermissionDeniedException("主管只能查看客服用户")
+        raise HTTPException(status_code=403, detail="无权查看该用户")
 
     stats = None
     if user.role in ("agent", "supervisor", "admin"):
-        stats_data = await get_user_stats(db, user_id)
-        if stats_data:
-            stats = UserStats.model_validate(stats_data)
+        stats = await _get_user_stats(db, user_id)
 
     return UserDetailResponse(
         id=user.id,
@@ -75,34 +131,34 @@ async def get_user(
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
-async def modify_user(
+async def update_user_endpoint(
     user_id: int,
     data: UserUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
 ):
-    target_user = await get_user_by_id(db, user_id)
-    if not target_user:
+    user = await get_user_by_id(db, user_id)
+    if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
     if current_user.role == "supervisor":
-        if target_user.role != "agent":
-            raise PermissionDeniedException("主管只能修改客服用户")
-        if data.role is not None and data.role != "agent":
-            raise PermissionDeniedException("主管不能将用户角色改为非客服")
+        if user.role != "agent":
+            raise HTTPException(status_code=403, detail="无权修改该用户")
+        if data.role and data.role != "agent":
+            raise HTTPException(status_code=403, detail="只能设置角色为 agent")
 
-    if current_user.id == user_id and data.role is not None and data.role != current_user.role:
-        raise HTTPException(status_code=400, detail="管理员不能修改自己的角色")
+    if current_user.id == user_id and data.role and data.role != user.role:
+        raise HTTPException(status_code=400, detail="不能修改自己的角色")
 
-    updated = await update_user(db, user_id, data)
+    updated = await update_user(db, user_id, data.model_dump(exclude_unset=True))
     return UserResponse.model_validate(updated)
 
 
-@router.post("/users/{user_id}/reset-password", response_model=PasswordResetResponse)
-async def reset_password(
+@router.post("/users/{user_id}/reset-password", response_model=UserPasswordResetResponse)
+async def reset_password_endpoint(
     user_id: int,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
     temp_password = await reset_user_password(db, user_id)
-    return {"temp_password": temp_password}
+    return UserPasswordResetResponse(temp_password=temp_password)

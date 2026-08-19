@@ -23,12 +23,8 @@ export default defineConfig({
     sourcemap: true,
   },
   test: {
-    globals: true,
     environment: 'jsdom',
-    include: ['tests/**/*.{test,spec}.{js,ts}'],
-    deps: {
-      inline: ['element-plus'],
-    },
-    setupFiles: ['./tests/setup.js'],
+    globals: true,
+    setupFiles: './tests/setup.js',
   },
 })

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
@@ -43,11 +44,23 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+
+
 class UserUpdate(BaseModel):
-    username: str | None = Field(None, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
-    email: EmailStr | None = Field(None, max_length=100)
-    role: str | None = Field(None, pattern=r"^(customer|agent|supervisor|admin)$")
-    is_active: bool | None = None
+    username: Optional[str] = Field(None, min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
+    email: Optional[str] = Field(None, max_length=100)
+    role: Optional[str] = Field(None, pattern=r"^(customer|agent|supervisor|admin)$")
+    is_active: Optional[bool] = None
 
 
 class UserListItem(BaseModel):
@@ -71,9 +84,9 @@ class UserListResponse(BaseModel):
 
 class UserStats(BaseModel):
     total_tickets: int
-    closed_tickets: int
+    resolved_tickets: int
     open_tickets: int
-    avg_first_resp_minutes: float | None = None
+    avg_first_resp_minutes: Optional[float] = None
 
 
 class UserDetailResponse(BaseModel):
@@ -84,22 +97,10 @@ class UserDetailResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    stats: UserStats | None = None
+    stats: Optional[UserStats] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: UserResponse
-
-
-class PasswordResetResponse(BaseModel):
+class UserPasswordResetResponse(BaseModel):
     temp_password: str

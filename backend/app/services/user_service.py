@@ -2,13 +2,13 @@ import secrets
 import string
 from datetime import datetime
 
-from sqlalchemy import func, select
+from fastapi import HTTPException
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import DuplicateException, NotFoundException, PermissionDeniedException
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.schemas.user import UserUpdate
 from app.services.notification_service import create_notification
 from app.utils.security import get_password_hash
 
@@ -20,51 +20,56 @@ async def list_users(
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    stmt = select(User)
-    if role:
-        stmt = stmt.where(User.role == role)
-    if is_active is not None:
-        stmt = stmt.where(User.is_active.is_(is_active))
+    base_stmt = select(User)
+    count_stmt = select(func.count(User.id))
 
-    count_stmt = select(func.count()).select_from(stmt.subquery())
+    filters = []
+    if role:
+        filters.append(User.role == role)
+    if is_active is not None:
+        filters.append(User.is_active == is_active)
+
+    if filters:
+        base_stmt = base_stmt.where(and_(*filters))
+        count_stmt = count_stmt.where(and_(*filters))
+
     total_result = await db.execute(count_stmt)
-    total = total_result.scalar_one()
+    total = total_result.scalar()
 
     result = await db.execute(
-        stmt.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        base_stmt
+        .order_by(User.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     users = result.scalars().all()
 
-    # Batch count tickets per assignee
+    # 批量统计工单数
     user_ids = [u.id for u in users]
-    ticket_counts = {}
-    if user_ids:
-        count_result = await db.execute(
-            select(Ticket.assignee_id, func.count(Ticket.id))
-            .where(Ticket.assignee_id.in_(user_ids))
-            .group_by(Ticket.assignee_id)
-        )
-        ticket_counts = {uid: cnt for uid, cnt in count_result.all()}
-
-    items = []
-    for user in users:
-        items.append(
-            {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at,
-                "ticket_count": ticket_counts.get(user.id, 0),
-            }
-        )
+    stats_stmt = (
+        select(Ticket.assignee_id, func.count(Ticket.id))
+        .where(Ticket.assignee_id.in_(user_ids))
+        .group_by(Ticket.assignee_id)
+    )
+    stats_result = await db.execute(stats_stmt)
+    ticket_counts = {uid: cnt for uid, cnt in stats_result.all()}
 
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items,
+        "items": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+                "created_at": u.created_at,
+                "ticket_count": ticket_counts.get(u.id, 0),
+            }
+            for u in users
+        ],
     }
 
 
@@ -73,81 +78,72 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def update_user(db: AsyncSession, user_id: int, update_data: UserUpdate) -> User:
-    user = await get_user_by_id(db, user_id)
+async def update_user(db: AsyncSession, user_id: int, update_data: dict) -> User:
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+    )
+    user = result.scalar_one_or_none()
     if not user:
-        raise NotFoundException("用户不存在")
+        raise HTTPException(status_code=404, detail="用户不存在")
 
-    update_dict = update_data.model_dump(exclude_unset=True)
-    if not update_dict:
-        return user
-
-    # Check username uniqueness excluding self
-    if "username" in update_dict and update_dict["username"] != user.username:
-        existing = await db.execute(
-            select(User).where(User.username == update_dict["username"], User.id != user_id)
+    if "username" in update_data and update_data["username"] != user.username:
+        dup = await db.execute(
+            select(User)
+            .where(User.username == update_data["username"], User.id != user_id)
+            .with_for_update()
         )
-        if existing.scalar_one_or_none():
-            raise DuplicateException("用户名已存在")
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="用户名已存在")
+        user.username = update_data["username"]
 
-    # Check email uniqueness excluding self
-    if "email" in update_dict and update_dict["email"] != user.email:
-        existing = await db.execute(
-            select(User).where(User.email == update_dict["email"], User.id != user_id)
+    if "email" in update_data and update_data["email"] != user.email:
+        dup = await db.execute(
+            select(User)
+            .where(User.email == update_data["email"], User.id != user_id)
+            .with_for_update()
         )
-        if existing.scalar_one_or_none():
-            raise DuplicateException("邮箱已存在")
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="邮箱已存在")
+        user.email = update_data["email"]
 
-    for key, value in update_dict.items():
-        setattr(user, key, value)
+    if "role" in update_data:
+        if update_data["role"] not in ("customer", "agent", "supervisor", "admin"):
+            raise HTTPException(status_code=400, detail="无效的角色")
+        user.role = update_data["role"]
+
+    if "is_active" in update_data:
+        user.is_active = update_data["is_active"]
 
     user.updated_at = datetime.utcnow()
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="用户名或邮箱已存在") from exc
     await db.refresh(user)
     return user
 
 
 async def reset_user_password(db: AsyncSession, user_id: int) -> str:
-    user = await get_user_by_id(db, user_id)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
     if not user:
-        raise NotFoundException("用户不存在")
+        raise HTTPException(status_code=404, detail="用户不存在")
 
-    temp_password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+    temp_password = ''.join(
+        secrets.choice(string.ascii_letters + string.digits) for _ in range(12)
+    )
     user.password_hash = get_password_hash(temp_password)
     user.updated_at = datetime.utcnow()
 
     await create_notification(
-        db=db,
-        user_id=user.id,
+        db,
+        user_id=user_id,
         type="password_reset",
-        title="密码已重置",
-        message="您的密码已被管理员重置，请使用临时密码登录并及时修改。",
-        data={"user_id": user.id},
+        title="您的密码已被管理员重置",
+        message="请使用临时密码登录后立即修改密码。",
+        data={"user_id": user_id},
     )
 
     await db.commit()
     return temp_password
-
-
-async def get_user_stats(db: AsyncSession, user_id: int) -> dict:
-    total_result = await db.execute(
-        select(func.count()).where(Ticket.assignee_id == user_id)
-    )
-    total_tickets = total_result.scalar_one()
-
-    closed_result = await db.execute(
-        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status == "closed")
-    )
-    closed_tickets = closed_result.scalar_one()
-
-    open_result = await db.execute(
-        select(func.count()).where(Ticket.assignee_id == user_id, Ticket.status != "closed")
-    )
-    open_tickets = open_result.scalar_one()
-
-    return {
-        "total_tickets": total_tickets,
-        "closed_tickets": closed_tickets,
-        "open_tickets": open_tickets,
-        "avg_first_resp_minutes": None,
-    }

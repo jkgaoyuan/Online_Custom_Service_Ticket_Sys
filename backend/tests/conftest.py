@@ -35,10 +35,11 @@ app.router.lifespan_context = _noop_lifespan
 @pytest.fixture(autouse=True)
 async def setup_db():
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base.metadata.drop_all, checkfirst=True)
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
     yield
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.drop_all, checkfirst=True)
     await engine.dispose()
 
 

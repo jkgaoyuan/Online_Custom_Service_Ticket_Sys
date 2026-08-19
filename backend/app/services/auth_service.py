@@ -28,6 +28,14 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def list_active_users(db: AsyncSession, role: str | None = None) -> list[User]:
+    stmt = select(User).where(User.is_active.is_(True))
+    if role:
+        stmt = stmt.where(User.role == role)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
     user = await get_user_by_username(db, username)
     if not user or not verify_password(password, user.password_hash):
