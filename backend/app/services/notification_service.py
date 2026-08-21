@@ -24,16 +24,28 @@ async def create_notification(
     return notif
 
 
-async def get_unread_notifications(
-    db: AsyncSession, user_id: int, limit: int = 50
+async def get_user_notifications(
+    db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0, include_read: bool = False
 ) -> list[Notification]:
-    result = await db.execute(
+    stmt = (
         select(Notification)
         .where(Notification.user_id == user_id)
         .order_by(Notification.created_at.desc())
         .limit(limit)
+        .offset(offset)
     )
+    if not include_read:
+        stmt = stmt.where(Notification.is_read.is_(False))
+    result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def count_unread_notifications(db: AsyncSession, user_id: int) -> int:
+    result = await db.execute(
+        select(Notification)
+        .where(Notification.user_id == user_id, Notification.is_read.is_(False))
+    )
+    return len(result.scalars().all())
 
 
 async def mark_notification_read(db: AsyncSession, notification_id: int, user_id: int) -> bool:

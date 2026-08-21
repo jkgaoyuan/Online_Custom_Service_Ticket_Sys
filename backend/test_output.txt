@@ -1,0 +1,33 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.10, pytest-8.0.0, pluggy-1.6.0 -- C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\python.exe
+cachedir: .pytest_cache
+rootdir: E:\pycharm\AI_PROJECT_CODE\Online_Custom_Service_Ticket_Sys\backend
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-0.21.1, cov-7.1.0, md-report-0.6.2, order-1.2.0
+asyncio: mode=auto
+collecting ... collected 1 item
+
+tests/test_webhooks.py::test_extract_ticket_no_from_subject_exact PASSED [100%]
+
+============================== warnings summary ===============================
+C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\lib\site-packages\pydantic\_internal\_config.py:272
+C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\lib\site-packages\pydantic\_internal\_config.py:272
+  C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\lib\site-packages\pydantic\_internal\_config.py:272: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.6/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+app\tasks\export_tasks.py:4
+  E:\pycharm\AI_PROJECT_CODE\Online_Custom_Service_Ticket_Sys\backend\app\tasks\export_tasks.py:4: DeprecationWarning: 
+  Pyarrow will become a required dependency of pandas in the next major release of pandas (pandas 3.0),
+  (to allow more performant data types, such as the Arrow string type, and better interoperability with other libraries)
+  but was not found to be installed on your system.
+  If this would cause problems for you,
+  please provide us feedback at https://github.com/pandas-dev/pandas/issues/54466
+          
+    import pandas as pd
+
+C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\lib\site-packages\httpx\_client.py:680
+  C:\Users\gaoyuan\AppData\Local\Programs\Python\Python310\lib\site-packages\httpx\_client.py:680: DeprecationWarning: The 'app' shortcut is now deprecated. Use the explicit style 'transport=WSGITransport(app=...)' instead.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 1 passed, 4 warnings in 2.59s ========================
