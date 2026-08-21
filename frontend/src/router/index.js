@@ -85,6 +85,21 @@ const routes = [
         name: 'AdminReports',
         component: () => import('@/views/admin/ReportsView.vue'),
       },
+      {
+        path: 'categories',
+        name: 'AdminCategories',
+        component: () => import('@/views/admin/CategoriesView.vue'),
+      },
+      {
+        path: 'agent-skills',
+        name: 'AdminAgentSkills',
+        component: () => import('@/views/admin/AgentSkillsView.vue'),
+      },
+      {
+        path: 'sla-rules',
+        name: 'AdminSLARules',
+        component: () => import('@/views/admin/SLARulesView.vue'),
+      },
     ],
   },
 ]

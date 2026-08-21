@@ -10,6 +10,18 @@
           <el-icon><TrendCharts /></el-icon>
           <span>数据报表</span>
         </el-menu-item>
+        <el-menu-item index="/admin/categories">
+          <el-icon><Grid /></el-icon>
+          <span>分类管理</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/agent-skills">
+          <el-icon><Star /></el-icon>
+          <span>技能配置</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/sla-rules">
+          <el-icon><Timer /></el-icon>
+          <span>SLA规则</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -31,7 +43,7 @@
 </template>
 
 <script setup>
-import { TrendCharts, UserFilled } from '@element-plus/icons-vue'
+import { Grid, Star, Timer, TrendCharts, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
 import NotificationBell from '@/components/NotificationBell.vue'
 
