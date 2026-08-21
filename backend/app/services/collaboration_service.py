@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.sse import send_event
-from app.exceptions import NotFoundException, TicketSystemException
+from app.exceptions import NotFoundException, TicketSystemException, ValidationException
 from app.models.collaboration import TicketCollaboration
 from app.models.ticket import Ticket
 from app.models.user import User
@@ -43,11 +43,11 @@ async def transfer_ticket(
     user_result = await db.execute(select(User).where(User.id == to_user_id))
     target_user = user_result.scalar_one_or_none()
     if target_user is None or target_user.role != "agent" or not target_user.is_active:
-        raise TicketSystemException("转交目标必须是有效的客服角色", status_code=400)
+        raise ValidationException("转交目标必须是有效的客服角色")
 
     # Cannot transfer to self (same assignee)
     if ticket.assignee_id == to_user_id:
-        raise TicketSystemException("不能转交给当前处理人", status_code=400)
+        raise ValidationException("不能转交给当前处理人")
 
     # Create transfer record
     collaboration = TicketCollaboration(
@@ -121,7 +121,7 @@ async def request_assistance(
     user_result = await db.execute(select(User).where(User.id == to_user_id))
     target_user = user_result.scalar_one_or_none()
     if target_user is None or target_user.role != "agent" or not target_user.is_active:
-        raise TicketSystemException("协助目标必须是有效的客服角色", status_code=400)
+        raise ValidationException("协助目标必须是有效的客服角色")
 
     # Check duplicate assist for same ticket + same agent
     existing_result = await db.execute(
@@ -132,7 +132,7 @@ async def request_assistance(
         )
     )
     if existing_result.scalar_one_or_none() is not None:
-        raise TicketSystemException("该客服已对此工单提供协助，不可重复请求", status_code=400)
+        raise ValidationException("该客服已对此工单提供协助，不可重复请求")
 
     # Create assist record
     collaboration = TicketCollaboration(
