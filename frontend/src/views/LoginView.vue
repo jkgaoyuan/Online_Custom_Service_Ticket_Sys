@@ -68,7 +68,7 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     const role = authStore.userRole
     if (role === 'customer') {
-      router.replace('/customer/dashboard')
+      router.replace('/customer/tickets')
     } else if (role === 'agent') {
       router.replace('/agent/workbench')
     } else {

@@ -18,6 +18,17 @@
       </el-timeline-item>
     </el-timeline>
 
+    <!-- 回复框 -->
+    <el-divider />
+    <div v-if="ticketsStore.currentTicket.status !== 'closed'">
+      <h3>补充回复</h3>
+      <ReplyBox
+        :ticketId="ticketsStore.currentTicket.id"
+        :showInternal="false"
+        @replied="handleReply"
+      />
+    </div>
+
     <!-- 评价区域 -->
     <el-divider />
     <div v-if="ticketsStore.currentTicket.status === 'closed'" class="satisfaction-section">
@@ -80,6 +91,7 @@ import { useTicketsStore } from '@/stores'
 import { ElMessage } from 'element-plus'
 import StatusBadge from '@/components/StatusBadge.vue'
 import PriorityTag from '@/components/PriorityTag.vue'
+import ReplyBox from '@/components/ReplyBox.vue'
 
 const route = useRoute()
 const ticketsStore = useTicketsStore()
@@ -114,6 +126,16 @@ const submitSatisfaction = async () => {
     ElMessage.error(e.response?.data?.detail || '提交失败')
   } finally {
     submitting.value = false
+  }
+}
+
+const handleReply = async (payload) => {
+  try {
+    await ticketsStore.replyTicket(route.params.id, payload)
+    await ticketsStore.fetchReplies(route.params.id)
+    ElMessage.success('回复成功')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '回复失败')
   }
 }
 </script>

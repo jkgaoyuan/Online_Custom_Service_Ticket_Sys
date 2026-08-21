@@ -100,7 +100,7 @@ router.beforeEach((to, from, next) => {
   // 已登录用户访问登录页，按角色跳转
   if (to.path === '/login' && authStore.isLoggedIn) {
     const role = authStore.userRole
-    if (role === 'customer') return next('/customer/dashboard')
+    if (role === 'customer') return next('/customer/tickets')
     if (role === 'agent') return next('/agent/workbench')
     if (role === 'admin' || role === 'supervisor') return next('/admin/users')
     // token 存在但角色未知，清除状态并留在登录页
