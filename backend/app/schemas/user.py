@@ -39,6 +39,7 @@ class UserResponse(UserBase):
     id: int
     role: str
     is_active: bool
+    max_concurrent_tickets: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -61,6 +62,7 @@ class UserUpdate(BaseModel):
     email: Optional[str] = Field(None, max_length=100)
     role: Optional[str] = Field(None, pattern=r"^(customer|agent|supervisor|admin)$")
     is_active: Optional[bool] = None
+    max_concurrent_tickets: Optional[int] = Field(None, ge=1, le=50)
 
 
 class UserListItem(BaseModel):
@@ -69,6 +71,7 @@ class UserListItem(BaseModel):
     email: str
     role: str
     is_active: bool
+    max_concurrent_tickets: int
     created_at: datetime
     ticket_count: int = 0
 
@@ -95,6 +98,7 @@ class UserDetailResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+    max_concurrent_tickets: int
     created_at: datetime
     updated_at: datetime
     stats: Optional[UserStats] = None

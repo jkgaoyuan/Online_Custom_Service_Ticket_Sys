@@ -8,8 +8,9 @@ from datetime import datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.schema import DropTable
+from sqlalchemy.ext.compiler import compiles
 
 from app.database import AsyncSessionLocal, Base, engine
 from app.main import app
@@ -21,6 +22,11 @@ from app.schemas.ticket import TicketCreate
 from app.services.auth_service import create_access_token
 from app.services.ticket_service import create_ticket
 from app.utils.security import get_password_hash
+
+
+@compiles(DropTable, "postgresql")
+def _compile_drop_table(element, compiler, **kwargs):
+    return compiler.visit_drop_table(element) + " CASCADE"
 
 
 @pytest.fixture(scope="session")

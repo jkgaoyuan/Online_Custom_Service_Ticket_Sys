@@ -65,6 +65,7 @@ async def list_users(
                 "email": u.email,
                 "role": u.role,
                 "is_active": u.is_active,
+                "max_concurrent_tickets": u.max_concurrent_tickets,
                 "created_at": u.created_at,
                 "ticket_count": ticket_counts.get(u.id, 0),
             }
@@ -113,6 +114,9 @@ async def update_user(db: AsyncSession, user_id: int, update_data: dict) -> User
 
     if "is_active" in update_data:
         user.is_active = update_data["is_active"]
+
+    if "max_concurrent_tickets" in update_data:
+        user.max_concurrent_tickets = update_data["max_concurrent_tickets"]
 
     user.updated_at = datetime.utcnow()
     try:

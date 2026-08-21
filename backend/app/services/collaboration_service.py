@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.sse import send_event
 from app.exceptions import NotFoundException, TicketSystemException
 from app.models.collaboration import TicketCollaboration
 from app.models.ticket import Ticket
@@ -74,6 +75,18 @@ async def transfer_ticket(
         message=f"来自 {source_text} 的转交，原因：{reason or '无'}"[:200],
         data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
     )
+    await send_event(
+        to_user_id,
+        "new_notification",
+        {
+            "id": None,
+            "type": "ticket_transferred",
+            "title": f"工单 #{ticket.ticket_no} 已转交给您",
+            "message": f"来自 {source_text} 的转交，原因：{reason or '无'}"[:200],
+            "ticket_id": ticket.id,
+            "ticket_no": ticket.ticket_no,
+        },
+    )
 
     await db.commit()
     await db.refresh(ticket)
@@ -139,6 +152,18 @@ async def request_assistance(
         title=f"工单 #{ticket.ticket_no} 请求协助",
         message=f"协助说明：{reason or '无'}"[:200],
         data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
+    )
+    await send_event(
+        to_user_id,
+        "new_notification",
+        {
+            "id": None,
+            "type": "assistance_requested",
+            "title": f"工单 #{ticket.ticket_no} 请求协助",
+            "message": f"协助说明：{reason or '无'}"[:200],
+            "ticket_id": ticket.id,
+            "ticket_no": ticket.ticket_no,
+        },
     )
 
     await db.commit()

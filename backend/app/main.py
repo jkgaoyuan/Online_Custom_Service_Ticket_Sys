@@ -13,7 +13,7 @@ from app.exceptions import (
     PermissionDeniedException,
     TicketSystemException,
 )
-from app.routers import admin, auth, categories, collaborations, dispatch, notifications, reports, sla, tickets, webhooks
+from app.routers import admin, agent_skills, auth, categories, collaborations, dispatch, notifications, reports, sla, sse, tickets, webhooks
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(notifications.router, prefix="/api/v1", tags=["Notifications"])
+app.include_router(sse.router, prefix="/api/v1", tags=["SSE"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(categories.router, prefix="/api/v1", tags=["Categories"])
 app.include_router(tickets.router, prefix="/api/v1", tags=["Tickets"])
@@ -74,6 +75,7 @@ app.include_router(dispatch.router, prefix="/api/v1", tags=["Dispatch"])
 app.include_router(webhooks.router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(reports.router, prefix="/api/v1", tags=["Reports"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(agent_skills.router, prefix="/api/v1", tags=["Agent Skills"])
 
 
 @app.get("/health")

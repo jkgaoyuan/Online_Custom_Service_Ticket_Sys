@@ -17,6 +17,7 @@
         <div class="header-content">
           <span class="header-title">管理后台</span>
           <div class="header-right">
+            <NotificationBell />
             <span v-if="authStore.user" class="username">{{ authStore.user.username }}</span>
             <el-button type="danger" size="small" @click="handleLogout">退出登录</el-button>
           </div>
@@ -32,6 +33,7 @@
 <script setup>
 import { TrendCharts, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
+import NotificationBell from '@/components/NotificationBell.vue'
 
 const authStore = useAuthStore()
 

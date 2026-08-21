@@ -9,6 +9,8 @@ class AssignSuggestion(BaseModel):
     agent_name: str
     score: float
     current_load: int
+    max_concurrent_tickets: int
+    is_available: bool
     proficiency: int | None = None
     reason: str
 

@@ -11,6 +11,7 @@ export const ticketApi = {
   transfer: (id, data) => api.post(`/tickets/${id}/transfer`, data),
   assist: (id, data) => api.post(`/tickets/${id}/assist`, data),
   getAgents: () => api.get('/agents'),
+  getAgentStats: () => api.get('/agent/stats'),
   getCollaborations: (id) => api.get(`/tickets/${id}/collaborations`),
 }
 

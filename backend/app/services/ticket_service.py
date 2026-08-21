@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sse import send_event
 from app.exceptions import DuplicateException, TicketSystemException
 from app.models.ticket import Ticket
 from app.models.user import User
@@ -42,6 +43,21 @@ async def create_ticket(
     await create_sla_record(db, ticket)
     await db.commit()
     await db.refresh(ticket)
+
+    if ticket.assignee_id is not None:
+        await send_event(
+            ticket.assignee_id,
+            "new_notification",
+            {
+                "id": None,
+                "type": "ticket_assigned",
+                "title": f"新工单分配：{ticket.title}",
+                "message": f"工单 #{ticket.ticket_no} 已分配给您",
+                "ticket_id": ticket.id,
+                "ticket_no": ticket.ticket_no,
+            },
+        )
+
     return ticket
 
 
@@ -134,6 +150,18 @@ async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_stat
             title=f"工单 #{ticket.ticket_no} 已关闭，请评价我们的服务",
             message="您的工单已处理完毕，点击评价本次服务体验。",
             data={"ticket_id": ticket.id, "ticket_no": ticket.ticket_no},
+        )
+        await send_event(
+            ticket.requester_id,
+            "new_notification",
+            {
+                "id": None,
+                "type": "satisfaction_invite",
+                "title": f"工单 #{ticket.ticket_no} 已关闭，请评价我们的服务",
+                "message": "您的工单已处理完毕，点击评价本次服务体验。",
+                "ticket_id": ticket.id,
+                "ticket_no": ticket.ticket_no,
+            },
         )
 
     # 重新打开：清空 resolved_at，让其继续受 resolution SLA 约束

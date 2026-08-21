@@ -4,6 +4,8 @@
 
 ---
 
+- **2026-08-19 23:59** — 将 `feat/missing-features` 合并到 `main`，解决 23 个文件冲突，Plan B/C 代码正式入库；本地 `main` 领先 `origin/main` 17 commit，待推送。
+
 - **2026-08-19 22:25** — 完成 Plan B 内部协作系统（转交/协助）B3-B5：协作 API + 20 后端测试 + 前端 UI，修复 TicketResponse 懒加载回归，全量 216 测试通过零回归，1 个 commit 已提交。
 
 - **2026-08-17 23:40** — 使用 Subagent-Driven Development 完成 Plan C 用户管理后台全部 5 个 Task（Schema → Service → Router → Tests → Frontend），经 per-task review + whole-branch review + fix 验证，8 条后端测试全部通过，前端 build 零错误，8 个 commit 已提交。

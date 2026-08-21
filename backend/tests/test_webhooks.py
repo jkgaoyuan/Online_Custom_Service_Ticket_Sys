@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.main import app
+
+TEST_WEBHOOK_SECRET = get_settings().WEBHOOK_SECRET
 from app.models.category import Category
 from app.models.email_ingestion import EmailIngestion
 from app.models.ticket import Ticket
@@ -612,7 +614,7 @@ async def test_webhook_unknown_sender_creates_moderation(db):
     response = client.post(
         "/api/v1/webhooks/email",
         json=payload,
-        headers={"Authorization": "Bearer webhook-secret-change-me"},
+        headers={"Authorization": f"Bearer {TEST_WEBHOOK_SECRET}"},
     )
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
@@ -630,7 +632,7 @@ def test_webhook_swallows_invalid_payload_returns_200():
     response = client.post(
         "/api/v1/webhooks/email",
         json={"not_a_valid_payload": True},
-        headers={"Authorization": "Bearer webhook-secret-change-me"},
+        headers={"Authorization": f"Bearer {TEST_WEBHOOK_SECRET}"},
     )
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
@@ -857,7 +859,7 @@ async def test_webhook_known_sender_creates_ticket(db, async_client):
     response = await async_client.post(
         "/api/v1/webhooks/email",
         json=payload,
-        headers={"Authorization": "Bearer webhook-secret-change-me"},
+        headers={"Authorization": f"Bearer {TEST_WEBHOOK_SECRET}"},
     )
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

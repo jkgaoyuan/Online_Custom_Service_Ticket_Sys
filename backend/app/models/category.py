@@ -1,7 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sqlalchemy import JSON, Boolean, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.agent_skill import AgentSkill
 
 
 class Category(Base):
@@ -16,3 +23,7 @@ class Category(Base):
     )
     sla_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    agent_skills: Mapped[list[AgentSkill]] = relationship(
+        "AgentSkill", back_populates="category", lazy="selectin"
+    )

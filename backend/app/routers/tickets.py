@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -34,6 +34,7 @@ from app.services.dispatch_service import auto_assign, log_manual_assign
 from app.services.sla_service import get_sla_record_by_ticket_id
 from app.services.auth_service import list_active_users
 from app.services.collaboration_service import get_collaborations
+from app.core.sse import send_event
 
 router = APIRouter()
 
@@ -75,6 +76,25 @@ async def list_agents(
     return [{"id": user.id, "username": user.username} for user in users]
 
 
+@router.get("/agent/stats", response_model=dict)
+async def get_agent_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("agent", "supervisor", "admin")),
+):
+    result = await db.execute(
+        select(Ticket.status, func.count(Ticket.id))
+        .where(Ticket.assignee_id == current_user.id)
+        .group_by(Ticket.status)
+    )
+    counts = {row[0]: row[1] for row in result.all()}
+    return {
+        "open": counts.get("open", 0),
+        "in_progress": counts.get("in_progress", 0),
+        "resolved": counts.get("resolved", 0),
+        "waiting": counts.get("waiting", 0),
+    }
+
+
 @router.post(
     "/tickets", response_model=TicketResponse, status_code=status.HTTP_201_CREATED
 )
@@ -88,6 +108,15 @@ async def create_ticket_endpoint(
         await auto_assign(db, ticket)
         await db.commit()
         await db.refresh(ticket)
+    if ticket.assignee_id is not None:
+        await send_event(ticket.assignee_id, "ticket_assigned", {
+            "ticket_id": ticket.id,
+            "ticket_no": ticket.ticket_no,
+            "title": ticket.title,
+            "priority": ticket.priority,
+            "status": ticket.status,
+        })
+        await send_event(ticket.assignee_id, "stats_update", {})
     return ticket
 
 
@@ -190,6 +219,8 @@ async def update_ticket_status(
     if current_user.role not in ("agent", "supervisor", "admin"):
         raise PermissionDeniedException("无权修改工单状态")
     ticket = await transition_ticket_status(db, ticket, req.status)
+    if ticket.assignee_id is not None:
+        await send_event(ticket.assignee_id, "stats_update", {})
     return ticket
 
 
@@ -211,6 +242,14 @@ async def assign_ticket(
     await log_manual_assign(db, ticket.id, req.assignee_id, f"手动分派 by user {current_user.id}")
     await db.commit()
     await db.refresh(ticket)
+    await send_event(req.assignee_id, "ticket_assigned", {
+        "ticket_id": ticket.id,
+        "ticket_no": ticket.ticket_no,
+        "title": ticket.title,
+        "priority": ticket.priority,
+        "status": ticket.status,
+    })
+    await send_event(req.assignee_id, "stats_update", {})
     return ticket
 
 

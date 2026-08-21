@@ -124,6 +124,7 @@ async def get_user_detail(
         email=user.email,
         role=user.role,
         is_active=user.is_active,
+        max_concurrent_tickets=user.max_concurrent_tickets,
         created_at=user.created_at,
         updated_at=user.updated_at,
         stats=stats,

@@ -9,7 +9,6 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.tasks.sla_tasks",
-        "app.tasks.notify_tasks",
         "app.tasks.export_tasks",
         "app.tasks.email_tasks",
     ],

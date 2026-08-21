@@ -90,15 +90,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElNotification } from 'element-plus'
 import { useTicketsStore } from '@/stores'
+import { useAuthStore } from '@/stores'
+import { ticketApi } from '@/api/tickets'
 import StatusBadge from '@/components/StatusBadge.vue'
 import PriorityTag from '@/components/PriorityTag.vue'
 import { Tickets, Loading, CircleCheck, Timer } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const store = useTicketsStore()
+const authStore = useAuthStore()
 
 const stats = ref({
   open: 0,
@@ -108,16 +112,15 @@ const stats = ref({
 })
 
 const recentTickets = ref([])
+let abortController = null
 
 const loadStats = async () => {
-  const statuses = ['open', 'in_progress', 'resolved', 'waiting']
-  const results = await Promise.all(
-    statuses.map((status) => store.fetchTickets({ status, page_size: 1 }).then(() => store.pagination.total))
-  )
-  stats.value.open = results[0]
-  stats.value.in_progress = results[1]
-  stats.value.resolved = results[2]
-  stats.value.waiting = results[3]
+  try {
+    const { data } = await ticketApi.getAgentStats()
+    stats.value = data
+  } catch (e) {
+    // ignore
+  }
 }
 
 const loadRecent = async () => {
@@ -130,9 +133,58 @@ const claim = async (row) => {
   await Promise.all([loadStats(), loadRecent()])
 }
 
+const connectSSE = () => {
+  if (!authStore.token) return
+  abortController = new AbortController()
+  fetch('/api/v1/sse/connect', {
+    headers: { Authorization: `Bearer ${authStore.token}` },
+    signal: abortController.signal,
+  }).then(async (response) => {
+    if (!response.body) return
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const payload = JSON.parse(line.slice(6))
+            if (payload.type === 'ticket_assigned') {
+              ElNotification({
+                title: '新工单分配',
+                message: `工单 ${payload.data.ticket_no}：${payload.data.title}`,
+                type: 'warning',
+              })
+              loadRecent()
+            } else if (payload.type === 'stats_update') {
+              loadStats()
+            }
+          } catch (e) {
+            // ignore parse error
+          }
+        }
+      }
+    }
+  }).catch(() => {
+    // connection closed or error
+  })
+}
+
 onMounted(() => {
   loadStats()
   loadRecent()
+  connectSSE()
+})
+
+onUnmounted(() => {
+  if (abortController) {
+    abortController.abort()
+  }
 })
 </script>
 

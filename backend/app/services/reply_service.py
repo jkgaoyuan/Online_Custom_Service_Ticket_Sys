@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.core.sse import send_event
 from app.models.ticket_reply import TicketReply
 from app.schemas.ticket_reply import ReplyCreate
 from app.models.ticket import Ticket
@@ -18,6 +19,35 @@ async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, auth
         if sla and sla.first_resp_at is None:
             sla.first_resp_at = datetime.utcnow()
             await db.commit()
+
+        if not data.is_internal:
+            await send_event(
+                ticket.requester_id,
+                "new_notification",
+                {
+                    "id": None,
+                    "type": "ticket_replied",
+                    "title": f"工单 #{ticket.ticket_no} 有新回复",
+                    "message": "客服已回复您的工单",
+                    "ticket_id": ticket.id,
+                    "ticket_no": ticket.ticket_no,
+                },
+            )
+    else:
+        # Customer reply
+        if ticket.assignee_id is not None:
+            await send_event(
+                ticket.assignee_id,
+                "new_notification",
+                {
+                    "id": None,
+                    "type": "ticket_replied",
+                    "title": f"工单 #{ticket.ticket_no} 有新回复",
+                    "message": "客户已回复工单",
+                    "ticket_id": ticket.id,
+                    "ticket_no": ticket.ticket_no,
+                },
+            )
 
     return reply
 
