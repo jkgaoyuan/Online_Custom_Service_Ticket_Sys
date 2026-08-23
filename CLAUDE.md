@@ -150,9 +150,9 @@
   ## 📋 最近进度
   <!-- 由归档流程自动维护，保留最近 3 条。首次使用前留空即可。 -->
 
+  - **2026-08-23 20:44** — 修复 admin 导出功能 `InterfaceError` 与超时：`export_tasks` / `sla_tasks` 改用局部 engine 避免 asyncpg 连接跨事件循环复用，`main.py` 导入 `celery_app` 使 `shared_task` 正确绑定 Redis broker，`docker-compose` 为 `api` / `worker` 挂载共享 `exports` volume；24 测试通过；1 个 commit 已提交。
   - **2026-08-23 20:32** — 修复客服 resolved 工单空白页（前端错误处理 + 后端权限边界），补充 requester 字段加载、回复作者展示、端到端测试；25/25 测试通过；1 个 commit 已提交。
   - **2026-08-23 13:40** — 修复前后端接口不一致（categories / sla / agentSkills 路径与字段对齐），补充 admin agent-skills 返回字段与 /admin/sla/rules 路由；修复测试环境 PostgreSQL DDL 竞态（`pg_type_typname_nsp_index` 冲突 + `Event loop is closed`），`conftest.py` 采用全局标志 + TRUNCATE + `engine.dispose()` 方案；后端 363 测试全部通过；10 个文件修改未提交。
-  - **2026-08-22 00:15** — 执行 M2-T23 后端单元测试覆盖核心业务≥80%：修复 collaboration_service ValidationException 导入和异常类型，新增 5 个测试文件共 89 个用例（agent_skills router 38 + auth_service 18 + user_service 15 + email_tasks 4 + security 14），关键模块覆盖率大幅提升（auth_service 44%→91%、user_service 42%→93%、email_tasks 76%→100%、security 90%→100%），总体覆盖率 75%→80%；1 个 commit 已提交。
 
   ---
 
