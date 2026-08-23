@@ -14,6 +14,7 @@ from app.exceptions import (
     TicketSystemException,
 )
 from app.routers import admin, agent_skills, auth, categories, collaborations, dispatch, notifications, reports, sla, sse, tickets, webhooks
+from celery_worker import celery_app  # noqa: F401  — 初始化 Celery app，使 shared_task 绑定到正确的 broker
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

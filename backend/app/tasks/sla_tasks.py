@@ -4,9 +4,10 @@ from datetime import datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
-from app.database import AsyncSessionLocal
+from app.config import get_settings
 from app.models.sla_record import SLARecord
 from app.models.user import User
 from app.services.notification_service import create_notification
@@ -22,17 +23,28 @@ def scan_sla_deadlines():
 async def _async_scan():
     now = datetime.utcnow()
 
-    async with AsyncSessionLocal() as db:
-        supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
-        supervisor_ids = [r[0] for r in supervisors.all()]
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.DATABASE_URL, echo=settings.DEBUG, future=True
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
-        try:
-            await _scan_first_resp(db, now, supervisor_ids)
-            await _scan_resolution(db, now, supervisor_ids)
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
+    try:
+        async with AsyncSessionLocal() as db:
+            supervisors = await db.execute(select(User.id).where(User.role == "supervisor"))
+            supervisor_ids = [r[0] for r in supervisors.all()]
+
+            try:
+                await _scan_first_resp(db, now, supervisor_ids)
+                await _scan_resolution(db, now, supervisor_ids)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+    finally:
+        await engine.dispose()
 
 
 async def _scan_first_resp(db, now: datetime, supervisor_ids: list[int]):

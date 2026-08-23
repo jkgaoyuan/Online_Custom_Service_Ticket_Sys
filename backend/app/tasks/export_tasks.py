@@ -4,8 +4,9 @@ from pathlib import Path
 import pandas as pd
 from celery import shared_task
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from app.config import get_settings
-from app.database import AsyncSessionLocal
 from app.services.report_service import (
     get_agent_performance,
     get_category_distribution,
@@ -51,19 +52,31 @@ async def _async_generate_report_export(task_id, report_type, format, start_date
     export_dir = Path(settings.EXPORT_DIR)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        async with AsyncSessionLocal() as db:
-            func = REPORT_TYPE_TO_FUNC.get(report_type)
-            if func is None:
-                raise ValueError(f"Unknown report_type: {report_type}")
+    engine = create_async_engine(
+        settings.DATABASE_URL, echo=settings.DEBUG, future=True
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
-            if report_type == "overview":
-                data = await func(db)
-            elif report_type == "trend":
-                # Default granularity for export is day
-                data = await func(db, "day", start_date, end_date)
-            else:
-                data = await func(db, start_date, end_date)
+    try:
+        try:
+            async with AsyncSessionLocal() as db:
+                func = REPORT_TYPE_TO_FUNC.get(report_type)
+                if func is None:
+                    raise ValueError(f"Unknown report_type: {report_type}")
+
+                if report_type == "overview":
+                    data = await func(db)
+                elif report_type == "trend":
+                    # Default granularity for export is day
+                    data = await func(db, "day", start_date, end_date)
+                else:
+                    data = await func(db, start_date, end_date)
+        except Exception as exc:
+            failed_marker = export_dir / f"{task_id}.failed"
+            failed_marker.write_text(str(exc), encoding="utf-8")
+            raise
 
         if report_type == "overview" or report_type == "satisfaction":
             # Single dict -> list of one
@@ -81,7 +94,5 @@ async def _async_generate_report_export(task_id, report_type, format, start_date
             df.to_excel(file_path, index=False, engine="openpyxl")
         else:
             df.to_csv(file_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
-    except Exception as exc:
-        failed_marker = export_dir / f"{task_id}.failed"
-        failed_marker.write_text(str(exc), encoding="utf-8")
-        raise
+    finally:
+        await engine.dispose()
