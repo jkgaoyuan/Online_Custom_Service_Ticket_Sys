@@ -6,6 +6,7 @@ import CustomerLayout from '@/layouts/CustomerLayout.vue'
 
 vi.mock('@/stores', () => ({
   useAuthStore: vi.fn(),
+  useNotificationsStore: vi.fn(),
 }))
 
 const Dummy = { template: '<div />' }
@@ -131,12 +132,13 @@ describe('Router Guard (TC-FE-009)', () => {
 
 describe('CustomerLayout (TC-FE-010)', () => {
   it('菜单按角色渲染', () => {
+    useAuthStore.mockReturnValue({ user: { username: 'test' }, logout: vi.fn() })
     const wrapper = mount(CustomerLayout, {
       global: {
         mocks: {
           $route: { path: '/customer/dashboard' },
         },
-        stubs: ['router-view', 'HomeFilled', 'Tickets', 'CirclePlus'],
+        stubs: ['router-view', 'HomeFilled', 'Tickets', 'CirclePlus', 'NotificationBell'],
       },
     })
     const items = wrapper.findAll('.el-menu-item')

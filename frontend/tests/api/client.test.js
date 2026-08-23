@@ -75,7 +75,7 @@ describe('API Client (TC-FE-021)', () => {
     const authStore = { token: 'old_token', clearAuth }
     useAuthStore.mockReturnValue(authStore)
 
-    const error = { response: { status: 401 } }
+    const error = { response: { status: 401 }, config: { url: '/test' } }
     expect(responseHandlers[0]).toBeDefined()
     const rejected = responseHandlers[0].rejected
 

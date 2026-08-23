@@ -38,7 +38,7 @@ describe('LoginView (TC-FE-024)', () => {
 
     expect(useAuthStore().login).toHaveBeenCalledWith({ username: 'cust', password: 'pass' })
     expect(ElMessage.success).toHaveBeenCalledWith('登录成功')
-    expect(replace).toHaveBeenCalledWith('/customer/dashboard')
+    expect(replace).toHaveBeenCalledWith('/customer/tickets')
   })
 })
 

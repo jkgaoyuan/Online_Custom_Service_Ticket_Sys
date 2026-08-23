@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import { config } from '@vue/test-utils'
-import { h } from 'vue'
+import { h, provide, inject, unref } from 'vue'
 import ElementPlus from 'element-plus'
 
 // 全局注册 Element Plus，确保测试中能解析所有 el-* 组件
@@ -20,11 +20,12 @@ window.matchMedia = vi.fn().mockImplementation((query) => ({
 }))
 
 // ResizeObserver polyfill for jsdom
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}))
+global.ResizeObserver = class {
+  constructor() {}
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 // scrollIntoView（Element Plus 分页/选择器需要）
 Element.prototype.scrollIntoView = vi.fn()
@@ -66,7 +67,7 @@ config.global.directives = {
 config.global.stubs['ElButton'] = {
   props: ['size', 'type', 'loading'],
   setup(props, { slots }) {
-    return () => h('button', { class: `el-button el-button--${props.type || 'default'}`, type: 'button' }, slots.default?.())
+    return () => h('button', { class: [`el-button el-button--${props.type || 'default'}`, props.loading && 'is-loading'], type: 'button' }, slots.default?.())
   },
 }
 
@@ -83,7 +84,7 @@ config.global.stubs['ElDialog'] = {
   setup(props, { slots, emit }) {
     return () =>
       props.modelValue
-        ? h('div', { class: 'el-dialog-wrapper' }, [
+        ? h('div', { class: 'el-dialog-wrapper el-dialog' }, [
             h('div', { class: 'el-dialog__header' }, props.title),
             h('div', { class: 'el-dialog__body' }, slots.default?.()),
             h('div', { class: 'el-dialog__footer' }, slots.footer?.()),
@@ -93,11 +94,7 @@ config.global.stubs['ElDialog'] = {
 }
 
 const simpleStubs = [
-  'ElForm',
-  'ElFormItem',
-  'ElInput',
   'ElOption',
-  'ElPagination',
   'ElSelect',
 ]
 
@@ -105,19 +102,85 @@ simpleStubs.forEach((name) => {
   config.global.stubs[name] = true
 })
 
+// ElForm stub with basic validation support
+config.global.stubs['ElForm'] = {
+  props: ['model', 'rules'],
+  setup(props, { slots, expose }) {
+    const validate = async () => {
+      if (!props.rules || !props.model) return true
+      for (const [key, rules] of Object.entries(props.rules)) {
+        for (const rule of rules) {
+          if (rule.required && !props.model[key]) {
+            throw { [key]: [new Error(rule.message)] }
+          }
+          if (rule.max && props.model[key] && props.model[key].length > rule.max) {
+            throw { [key]: [new Error(rule.message)] }
+          }
+        }
+      }
+      return true
+    }
+    expose({ validate })
+    return () => h('form', {}, slots.default?.())
+  },
+}
+
+config.global.stubs['ElFormItem'] = {
+  props: ['prop', 'label'],
+  setup(props, { slots }) {
+    return () => h('div', { class: 'el-form-item' }, slots.default?.())
+  },
+}
+config.global.stubs['ElPagination'] = {
+  props: ['currentPage', 'pageSize', 'total'],
+  setup(props, { emit }) {
+    return () => h('div', { class: 'el-pagination' }, `Total: ${props.total ?? 0}`)
+  },
+}
+
+// ElEmpty stub
+config.global.stubs['ElEmpty'] = {
+  props: ['description'],
+  setup(props, { slots }) {
+    return () => h('div', { class: 'el-empty' }, props.description || slots.default?.())
+  },
+}
+
+// ElCheckbox stub
+config.global.stubs['ElCheckbox'] = {
+  props: ['modelValue'],
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    return () => h('input', {
+      type: 'checkbox',
+      class: 'el-checkbox__original',
+      checked: props.modelValue,
+      onChange: (e) => emit('update:modelValue', e.target.checked),
+    })
+  },
+}
+
 // ElTable and ElTableColumn need to render slots so row content is visible
+const TableDataSymbol = Symbol('tableData')
+
 config.global.stubs['ElTable'] = {
   props: ['data', 'vLoading'],
   setup(props, { slots }) {
-    return () => h('div', { class: 'el-table' }, slots.default?.())
+    const data = Array.isArray(unref(props.data)) ? unref(props.data) : []
+    provide(TableDataSymbol, data)
+    return () => h('div', { class: 'el-table' }, [
+      slots.default?.(),
+      ...data.map((row, i) => h('div', { class: 'el-table__row', key: i })),
+    ])
   },
 }
 
 config.global.stubs['ElTableColumn'] = {
   props: ['prop', 'label', 'width'],
   setup(props, { slots }) {
-    return () => {
-      return h('div', { class: 'el-table-column' }, slots.default?.({ row: {} }))
-    }
+    const data = inject(TableDataSymbol, [])
+    return () => h('div', { class: 'el-table-column' },
+      data.map((row, index) => h('div', { class: 'el-table__cell', key: index }, slots.default?.({ row }) || String(row[props.prop] ?? '')))
+    )
   },
 }

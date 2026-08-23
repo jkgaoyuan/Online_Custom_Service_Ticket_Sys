@@ -56,6 +56,7 @@ const createTicketsStore = (ticketOverrides = {}) => ({
   updateStatus: vi.fn(),
   transferTicket: vi.fn(),
   assistTicket: vi.fn(),
+  loadCollaborations: vi.fn(),
 })
 
 const createAuthStore = () => ({

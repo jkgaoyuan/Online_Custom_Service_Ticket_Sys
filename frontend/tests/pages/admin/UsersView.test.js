@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import UsersView from '@/views/admin/UsersView.vue'
+import { useUsersStore } from '@/stores/users'
 
 vi.mock('element-plus', async () => {
   const actual = await vi.importActual('element-plus')
@@ -11,7 +12,7 @@ vi.mock('element-plus', async () => {
   }
 })
 
-vi.mock('@/stores', () => ({
+vi.mock('@/stores/users', () => ({
   useUsersStore: vi.fn(),
 }))
 
@@ -81,7 +82,7 @@ describe('UsersView (TC-FE-053)', () => {
     await flushPromises()
 
     // 点击保存
-    const saveBtn = wrapper.findAll('.el-dialog').at(0).findAll('.el-button').find((b) => b.text().includes('保存'))
+    const saveBtn = wrapper.findAll('.el-dialog-wrapper').at(0).findAll('.el-button').find((b) => b.text().includes('保存'))
     expect(saveBtn).toBeDefined()
     await saveBtn.trigger('click')
     await flushPromises()

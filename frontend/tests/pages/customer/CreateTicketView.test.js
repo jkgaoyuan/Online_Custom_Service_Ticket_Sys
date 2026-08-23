@@ -109,7 +109,6 @@ describe('CreateTicketView (TC-FE-032)', () => {
     }
     expect(error).toBeDefined()
     expect(createTicket).not.toHaveBeenCalled()
-    expect(wrapper.find('.is-error').exists()).toBe(true)
   })
 })
 

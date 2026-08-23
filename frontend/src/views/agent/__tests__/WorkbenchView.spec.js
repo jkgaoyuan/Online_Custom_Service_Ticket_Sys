@@ -18,6 +18,7 @@ const mockStore = {
 
 vi.mock('@/stores', () => ({
   useTicketsStore: () => mockStore,
+  useAuthStore: () => ({ token: 'mock-token', userRole: 'agent', user: { username: 'agent1' } }),
 }))
 
 const iconStubs = {
@@ -53,14 +54,9 @@ describe('WorkbenchView.vue', () => {
       global: { stubs: iconStubs },
     })
     await nextTick()
-    // loadStats: 4 parallel calls with different statuses
-    expect(mockStore.fetchTickets).toHaveBeenCalledWith({ status: 'open', page_size: 1 })
-    expect(mockStore.fetchTickets).toHaveBeenCalledWith({ status: 'in_progress', page_size: 1 })
-    expect(mockStore.fetchTickets).toHaveBeenCalledWith({ status: 'resolved', page_size: 1 })
-    expect(mockStore.fetchTickets).toHaveBeenCalledWith({ status: 'waiting', page_size: 1 })
-    // loadRecent: 1 call
+    // loadRecent calls fetchTickets once with page_size: 5
     expect(mockStore.fetchTickets).toHaveBeenCalledWith({ page_size: 5 })
-    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(5)
+    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(1)
   })
 
   it('clicking view-all button navigates to tickets list', async () => {
@@ -92,8 +88,8 @@ describe('WorkbenchView.vue', () => {
     const row = { id: 42, status: 'open' }
     await wrapper.vm.claim(row)
     expect(mockStore.updateStatus).toHaveBeenCalledWith(42, 'in_progress')
-    // 5 initial (loadStats 4 + loadRecent 1) + 5 refresh (loadStats 4 + loadRecent 1)
-    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(10)
+    // initial mount 1 (loadRecent) + claim 1 (loadRecent) = 2
+    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(2)
   })
 
   it('stat values reflect pagination totals', async () => {
@@ -113,9 +109,8 @@ describe('WorkbenchView.vue', () => {
     await new Promise((r) => setTimeout(r, 0))
     await nextTick()
 
-    // Note: loadStats uses Promise.all, so total values may race.
-    // We verify the component reacts to store state at all.
-    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(5)
+    // loadRecent calls fetchTickets once
+    expect(mockStore.fetchTickets).toHaveBeenCalledTimes(1)
     expect(wrapper.vm.stats).toBeDefined()
   })
 })
