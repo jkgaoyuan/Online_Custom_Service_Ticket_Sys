@@ -32,3 +32,6 @@ alembic/versions/__pycache__/
 
 # Exports
 /exports/
+
+# SQLite
+*.db

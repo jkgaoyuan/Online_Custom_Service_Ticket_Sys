@@ -1,7 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.sse import send_event
 from app.exceptions import DuplicateException, TicketSystemException
@@ -90,7 +91,11 @@ async def get_tickets_query(
         query = query.where(Ticket.requester_id == current_user.id)
     elif current_user.role == "agent":
         query = query.where(
-            or_(Ticket.assignee_id == current_user.id, Ticket.status == "open")
+            or_(
+                Ticket.assignee_id == current_user.id,
+                Ticket.status == "open",
+                and_(Ticket.assignee_id.is_(None), Ticket.status.in_(["open", "in_progress"])),
+            )
         )
 
     if status:
@@ -110,6 +115,7 @@ async def get_tickets_query(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    query = query.options(selectinload(Ticket.requester))
     result = await db.execute(query)
     items = result.scalars().all()
     return {"total": total, "page": page, "page_size": page_size, "items": items}

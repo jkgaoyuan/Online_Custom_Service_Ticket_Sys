@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,7 @@ from app.schemas.ticket import (
     TicketUpdate,
 )
 from app.schemas.ticket_reply import ReplyCreate, ReplyResponse
+from app.schemas.user import UserResponse
 from app.services.ticket_service import (
     create_ticket,
     get_ticket_by_id,
@@ -46,6 +49,9 @@ async def check_ticket_access(db: AsyncSession, ticket: Ticket, current_user: Us
         return
     if current_user.role == "agent":
         if ticket.assignee_id == current_user.id or ticket.status == "open":
+            return
+        # 允许 agent 查看待认领的 in_progress 工单（无 assignee）
+        if ticket.status == "in_progress" and ticket.assignee_id is None:
             return
         result = await db.execute(
             select(TicketCollaboration).where(
@@ -81,16 +87,29 @@ async def get_agent_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("agent", "supervisor", "admin")),
 ):
+    # 当前实时状态统计
     result = await db.execute(
         select(Ticket.status, func.count(Ticket.id))
         .where(Ticket.assignee_id == current_user.id)
         .group_by(Ticket.status)
     )
     counts = {row[0]: row[1] for row in result.all()}
+
+    # 今日已解决：今日 resolved 或 closed 的工单
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    resolved_result = await db.execute(
+        select(func.count(Ticket.id)).where(
+            Ticket.assignee_id == current_user.id,
+            Ticket.status.in_(["resolved", "closed"]),
+            Ticket.resolved_at >= today_start,
+        )
+    )
+    today_resolved = resolved_result.scalar() or 0
+
     return {
         "open": counts.get("open", 0),
         "in_progress": counts.get("in_progress", 0),
-        "resolved": counts.get("resolved", 0),
+        "resolved": today_resolved,
         "waiting": counts.get("waiting", 0),
     }
 
@@ -133,15 +152,18 @@ async def list_tickets(
     result = await get_tickets_query(
         db, current_user, status, priority, category_id, page, page_size
     )
-    # Serialize items to ensure JSON compatibility
+    # Serialize items and inject requester info for list view
+    items = []
+    for ticket in result["items"]:
+        data = TicketResponse.model_validate(ticket).model_dump()
+        if ticket.requester:
+            data["requester"] = UserResponse.model_validate(ticket.requester).model_dump()
+        items.append(data)
     return {
         "total": result["total"],
         "page": result["page"],
         "page_size": result["page_size"],
-        "items": [
-            TicketResponse.model_validate(ticket).model_dump()
-            for ticket in result["items"]
-        ],
+        "items": items,
     }
 
 
@@ -155,6 +177,7 @@ async def get_ticket(
         select(Ticket)
         .where(Ticket.id == ticket_id)
         .options(
+            selectinload(Ticket.requester),
             selectinload(Ticket.collaborations).selectinload(TicketCollaboration.from_user),
             selectinload(Ticket.collaborations).selectinload(TicketCollaboration.to_user),
         )
@@ -182,12 +205,20 @@ async def reply_ticket(
     if not ticket:
         raise NotFoundException("工单不存在")
     await check_ticket_access(db, ticket, current_user)
-    # Agent/Supervisor/Admin replying to open ticket auto-claims it
-    if current_user.role in ("agent", "supervisor", "admin") and ticket.status == "open":
+    is_agent_reply = current_user.role in ("agent", "supervisor", "admin") and not data.is_internal
+    if is_agent_reply and ticket.status == "open":
         ticket.status = "in_progress"
         ticket.assignee_id = current_user.id
-    is_agent_reply = current_user.role in ("agent", "supervisor", "admin") and not data.is_internal
+    elif not is_agent_reply and ticket.status == "waiting":
+        # 客户回复 waiting 工单，自动恢复为处理中
+        ticket.status = "in_progress"
     reply = await create_reply(db, ticket, data, current_user.id, is_agent_reply=is_agent_reply)
+    # 状态变更后需要显式提交
+    await db.commit()
+    await db.refresh(ticket)
+    # 如果工单有 assignee_id，发送 stats_update SSE 事件
+    if ticket.assignee_id is not None:
+        await send_event(ticket.assignee_id, "stats_update", {})
     return reply
 
 

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.collaboration import CollaborationResponse
 from app.schemas.sla import SLASummary
+from app.schemas.user import UserResponse
 
 
 class TicketBase(BaseModel):
@@ -54,6 +55,7 @@ class TicketResponse(BaseModel):
 
 class TicketDetailResponse(TicketResponse):
     collaborations: Optional[list[CollaborationResponse]] = None
+    requester: Optional[UserResponse] = None
 
 
 class StatusUpdateRequest(BaseModel):

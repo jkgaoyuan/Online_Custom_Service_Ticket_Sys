@@ -14,7 +14,13 @@
     <h3>回复记录</h3>
     <el-timeline>
       <el-timeline-item v-for="reply in ticketsStore.replies" :key="reply.id" :timestamp="reply.created_at">
-        {{ reply.content }}
+        <div class="reply-header">
+          <span :class="reply.author?.role === 'customer' ? 'customer-badge' : 'agent-badge'">
+            {{ reply.author?.username || '未知用户' }}
+          </span>
+          <el-tag v-if="reply.is_internal" type="warning" size="small">内部</el-tag>
+        </div>
+        <div class="reply-content">{{ reply.content }}</div>
       </el-timeline-item>
     </el-timeline>
 
@@ -149,4 +155,8 @@ const handleReply = async (payload) => {
 .rating-icon { font-size: 24px; }
 .rating-note { color: #666; margin-top: 8px; }
 .rating-time { color: #999; font-size: 12px; margin-top: 8px; }
+.reply-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.reply-content { white-space: pre-wrap; word-break: break-word; }
+.customer-badge { color: #409eff; font-weight: 600; }
+.agent-badge { color: #67c23a; font-weight: 600; }
 </style>

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 
 import pytest
 from sqlalchemy import select
@@ -49,6 +50,8 @@ async def _create_ticket(db, title, description, category_id, requester_id, stat
     ticket = await create_ticket(db, data, requester_id)
     if status != "open":
         ticket.status = status
+        if status in ("resolved", "closed"):
+            ticket.resolved_at = datetime.utcnow()
         await db.commit()
         await db.refresh(ticket)
     return ticket
@@ -68,6 +71,7 @@ async def test_agent_stats_success(client, agent_auth_headers, db):
     await _create_ticket(db, "In progress 1", "desc", category.id, customer.id, status="in_progress", assignee_id=agent.id)
     await _create_ticket(db, "In progress 2", "desc", category.id, customer.id, status="in_progress", assignee_id=agent.id)
     await _create_ticket(db, "Resolved ticket", "desc", category.id, customer.id, status="resolved", assignee_id=agent.id)
+    await _create_ticket(db, "Closed ticket", "desc", category.id, customer.id, status="closed", assignee_id=agent.id)
     await _create_ticket(db, "Waiting ticket", "desc", category.id, customer.id, status="waiting", assignee_id=agent.id)
 
     r = await client.get("/api/v1/agent/stats", headers=agent_auth_headers)
@@ -75,7 +79,7 @@ async def test_agent_stats_success(client, agent_auth_headers, db):
     data = r.json()
     assert data["open"] == 1
     assert data["in_progress"] == 2
-    assert data["resolved"] == 1
+    assert data["resolved"] == 2
     assert data["waiting"] == 1
 
 

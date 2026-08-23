@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.core.sse import send_event
 from app.models.ticket_reply import TicketReply
 from app.schemas.ticket_reply import ReplyCreate
@@ -49,10 +50,21 @@ async def create_reply(db: AsyncSession, ticket: Ticket, data: ReplyCreate, auth
                 },
             )
 
-    return reply
+    # Re-query to eagerly load author relationship for serialization
+    result = await db.execute(
+        select(TicketReply)
+        .where(TicketReply.id == reply.id)
+        .options(selectinload(TicketReply.author))
+    )
+    return result.scalar_one()
 
 async def get_replies_by_ticket(db: AsyncSession, ticket_id: int, include_internal: bool = False) -> list[TicketReply]:
-    query = select(TicketReply).where(TicketReply.ticket_id == ticket_id).order_by(TicketReply.created_at.asc())
+    query = (
+        select(TicketReply)
+        .where(TicketReply.ticket_id == ticket_id)
+        .order_by(TicketReply.created_at.asc())
+        .options(selectinload(TicketReply.author))
+    )
     if not include_internal:
         query = query.where(TicketReply.is_internal == False)
     result = await db.execute(query)

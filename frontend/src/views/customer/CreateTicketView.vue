@@ -21,6 +21,9 @@
       <el-form-item label="描述" prop="description">
         <el-input v-model="form.description" type="textarea" :rows="5" />
       </el-form-item>
+      <el-form-item label="自动分派">
+        <el-switch v-model="form.auto_dispatch" active-text="开启" inactive-text="关闭" />
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="submit" :loading="store.loading">提交</el-button>
       </el-form-item>
@@ -36,7 +39,7 @@ import { ElMessage } from 'element-plus'
 const router = useRouter()
 const store = useTicketsStore()
 const formRef = ref(null)
-const form = reactive({ title: '', category_id: null, priority: 'P2', description: '' })
+const form = reactive({ title: '', category_id: null, priority: 'P2', description: '', auto_dispatch: true })
 const rules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }, { max: 200, message: '最多200字符', trigger: 'blur' }],
   category_id: [{ required: true, message: '请选择分类', trigger: 'change' }],

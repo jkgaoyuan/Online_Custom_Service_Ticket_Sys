@@ -5,7 +5,7 @@
       <el-descriptions-item label="工单号">{{ store.currentTicket.ticket_no }}</el-descriptions-item>
       <el-descriptions-item label="状态"><StatusBadge :status="store.currentTicket.status" /></el-descriptions-item>
       <el-descriptions-item label="优先级"><PriorityTag :priority="store.currentTicket.priority" /></el-descriptions-item>
-      <el-descriptions-item label="客户">{{ store.currentTicket.requester?.username }}</el-descriptions-item>
+      <el-descriptions-item label="客户">{{ store.currentTicket.requester?.username || '-' }}</el-descriptions-item>
     </el-descriptions>
     <el-divider />
     <h3>描述</h3>
@@ -14,8 +14,13 @@
     <h3>回复记录</h3>
     <el-timeline>
       <el-timeline-item v-for="reply in store.replies" :key="reply.id" :timestamp="reply.created_at">
-        <el-tag v-if="reply.is_internal" type="warning" size="small">内部</el-tag>
-        {{ reply.content }}
+        <div class="reply-header">
+          <span :class="reply.author?.role === 'customer' ? 'customer-badge' : 'agent-badge'">
+            {{ reply.author?.username || '未知用户' }}
+          </span>
+          <el-tag v-if="reply.is_internal" type="warning" size="small">内部</el-tag>
+        </div>
+        <div class="reply-content">{{ reply.content }}</div>
       </el-timeline-item>
     </el-timeline>
     <el-divider />
@@ -82,12 +87,22 @@
         <el-timeline-item v-for="collab in store.currentTicket.collaborations" :key="collab.id" :timestamp="collab.created_at">
           <span v-if="collab.type === 'transfer'">🔄 转交</span>
           <span v-else>🤝 协助</span>
-          {{ collab.from_user?.username || '系统' }} → {{ collab.to_user.username }}
+          {{ collab.from_user?.username || '系统' }} → {{ collab.to_user?.username || '未知' }}
           <el-tag v-if="collab.reason" size="small" type="info">{{ collab.reason }}</el-tag>
         </el-timeline-item>
       </el-timeline>
     </template>
   </div>
+  <div v-else-if="error" class="error-state">
+    <el-empty description="加载工单失败">
+      <template #description>
+        <p style="color: #f56c6c; margin-bottom: 16px;">{{ error }}</p>
+      </template>
+      <el-button type="primary" @click="loadTicket">重试</el-button>
+      <el-button @click="router.back()">返回</el-button>
+    </el-empty>
+  </div>
+  <div v-else v-loading="store.loading" style="min-height: 300px;" />
 </template>
 
 <script setup>
@@ -116,14 +131,24 @@ const assistDialogVisible = ref(false)
 const transferLoading = ref(false)
 const assistLoading = ref(false)
 const availableAgents = ref([])
+const error = ref(null)
 
 const transferForm = ref({ to_user_id: null, reason: '' })
 const assistForm = ref({ to_user_id: null, reason: '' })
 
+const loadTicket = async () => {
+  error.value = null
+  try {
+    await store.fetchTicket(route.params.id)
+    await store.fetchReplies(route.params.id)
+    await store.loadCollaborations(route.params.id)
+  } catch (err) {
+    error.value = err.response?.data?.detail || '加载工单失败，请稍后重试'
+  }
+}
+
 onMounted(() => {
-  store.fetchTicket(route.params.id)
-  store.fetchReplies(route.params.id)
-  store.loadCollaborations(route.params.id)
+  loadTicket()
 })
 
 const loadAvailableAgents = async () => {
@@ -221,3 +246,11 @@ const handleManualAssign = async (agentId) => {
   await store.fetchTicket(store.currentTicket.id)
 }
 </script>
+
+<style scoped>
+.reply-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.reply-content { white-space: pre-wrap; word-break: break-word; }
+.customer-badge { color: #409eff; font-weight: 600; }
+.agent-badge { color: #67c23a; font-weight: 600; }
+.error-state { min-height: 400px; display: flex; align-items: center; justify-content: center; }
+</style>

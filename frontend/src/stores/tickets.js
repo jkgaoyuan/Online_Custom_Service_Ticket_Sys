@@ -32,6 +32,10 @@ export const useTicketsStore = defineStore('tickets', () => {
     try {
       const { data } = await ticketApi.get(id)
       currentTicket.value = data
+      return data
+    } catch (err) {
+      currentTicket.value = null
+      throw err
     } finally {
       loading.value = false
     }
