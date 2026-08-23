@@ -10,10 +10,8 @@ class CategoryBase(BaseModel):
     default_priority: str = Field(default="P2", pattern="^(P0|P1|P2|P3)$")
     sla_config: dict = Field(
         default_factory=lambda: {
-            "P0": {"first_resp_hours": 1, "resolution_hours": 4},
-            "P1": {"first_resp_hours": 4, "resolution_hours": 24},
-            "P2": {"first_resp_hours": 8, "resolution_hours": 48},
-            "P3": {"first_resp_hours": 24, "resolution_hours": 72},
+            "first_resp_hours": 8,
+            "resolution_hours": 48,
         }
     )
     is_active: bool = True

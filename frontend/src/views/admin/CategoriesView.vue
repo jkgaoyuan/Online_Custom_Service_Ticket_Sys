@@ -11,9 +11,9 @@
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="code" label="Code" />
-      <el-table-column prop="priority" label="优先级" width="100">
+      <el-table-column prop="default_priority" label="优先级" width="100">
         <template #default="{ row }">
-          <el-tag :type="priorityTagType(row.priority)">{{ row.priority }}</el-tag>
+          <el-tag :type="priorityTagType(row.default_priority)">{{ row.default_priority }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="SLA 配置">
@@ -43,12 +43,12 @@
         <el-form-item label="Code" prop="code">
           <el-input v-model="form.code" placeholder="请输入分类 code" />
         </el-form-item>
-        <el-form-item label="优先级" prop="priority">
-          <el-select v-model="form.priority" placeholder="请选择优先级">
+        <el-form-item label="优先级" prop="default_priority">
+          <el-select v-model="form.default_priority" placeholder="请选择优先级">
+            <el-option label="P0" value="P0" />
             <el-option label="P1" value="P1" />
             <el-option label="P2" value="P2" />
             <el-option label="P3" value="P3" />
-            <el-option label="P4" value="P4" />
           </el-select>
         </el-form-item>
         <el-form-item label="首次响应(h)" prop="first_resp_hours">
@@ -82,7 +82,7 @@ const form = reactive({
   id: null,
   name: '',
   code: '',
-  priority: 'P1',
+  default_priority: 'P2',
   first_resp_hours: 4,
   resolution_hours: 24,
 })
@@ -90,7 +90,7 @@ const form = reactive({
 const rules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   code: [{ required: true, message: '请输入 Code', trigger: 'blur' }],
-  priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
+  default_priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
 }
 
 function priorityTagType(priority) {
@@ -106,7 +106,7 @@ function resetForm() {
   form.id = null
   form.name = ''
   form.code = ''
-  form.priority = 'P1'
+  form.default_priority = 'P2'
   form.first_resp_hours = 4
   form.resolution_hours = 24
 }
@@ -121,7 +121,7 @@ function openEdit(row) {
   form.id = row.id
   form.name = row.name
   form.code = row.code
-  form.priority = row.priority
+  form.default_priority = row.default_priority
   form.first_resp_hours = row.sla_config?.first_resp_hours ?? 4
   form.resolution_hours = row.sla_config?.resolution_hours ?? 24
   isEdit.value = true
@@ -137,7 +137,7 @@ async function submitForm() {
     const payload = {
       name: form.name,
       code: form.code,
-      priority: form.priority,
+      default_priority: form.default_priority,
       sla_config: {
         first_resp_hours: form.first_resp_hours,
         resolution_hours: form.resolution_hours,

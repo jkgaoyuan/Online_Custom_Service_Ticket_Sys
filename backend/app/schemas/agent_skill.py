@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -17,5 +19,7 @@ class AgentSkillUpdate(BaseModel):
 
 class AgentSkillResponse(AgentSkillBase):
     id: int
+    agent_name: Optional[str] = None
+    category_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
 from app.exceptions import NotFoundException
+from app.models.category import Category
 from app.models.user import User
 from app.routers.tickets import check_ticket_access
 from app.schemas.sla import SLAResponse
@@ -30,13 +32,30 @@ async def get_ticket_sla(
     return sla
 
 
+@router.get("/admin/sla/rules", response_model=list[dict])
+async def list_sla_rules(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "supervisor")),
+):
+    result = await db.execute(select(Category).where(Category.is_active.is_(True)))
+    categories = result.scalars().all()
+    return [
+        {
+            "category_name": c.name,
+            "first_resp_hours": c.sla_config.get("first_resp_hours"),
+            "resolution_hours": c.sla_config.get("resolution_hours"),
+            "updated_at": None,
+        }
+        for c in categories
+    ]
+
+
 @router.get("/admin/sla/overdue", response_model=list[SLAResponse])
 async def list_overdue_sla(
     breach_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
 ):
-    from sqlalchemy import select
     from app.models.sla_record import SLARecord
 
     stmt = select(SLARecord).where(

@@ -8,6 +8,7 @@ from datetime import datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import DropTable
 from sqlalchemy.ext.compiler import compiles
@@ -43,14 +44,21 @@ async def _noop_lifespan(app):
 app.router.lifespan_context = _noop_lifespan
 
 
+_db_initialized = False
+
+
 @pytest.fixture(autouse=True)
 async def setup_db():
+    global _db_initialized
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all, checkfirst=True)
-        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+        if not _db_initialized:
+            await conn.run_sync(Base.metadata.drop_all, checkfirst=True)
+            await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+            _db_initialized = True
     yield
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all, checkfirst=True)
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE"))
     await engine.dispose()
 
 
