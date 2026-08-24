@@ -95,3 +95,46 @@ describe('TicketDetailView (TC-FE-045)', () => {
     expect(wrapper.findAll('script')).toHaveLength(0)
   })
 })
+
+describe('TicketDetailView (TC-FE-056)', () => {
+  it('resolved 状态显示关闭工单按钮，点击后关闭', async () => {
+    const updateStatus = vi.fn().mockResolvedValue({})
+    const fetchTicket = vi.fn()
+    useRoute.mockReturnValue({ params: { id: '123' } })
+    useTicketsStore.mockReturnValue({
+      currentTicket: { id: 123, title: 'Test', status: 'resolved', ticket_no: 'T-123', priority: 'P2', created_at: '2024-01-01', description: 'desc' },
+      replies: [],
+      fetchTicket,
+      fetchReplies: vi.fn(),
+      updateStatus,
+    })
+
+    const wrapper = mount(TicketDetailView)
+    await flushPromises()
+
+    const closeBtn = wrapper.findAll('.el-button').find((b) => b.text().includes('关闭工单'))
+    expect(closeBtn).toBeDefined()
+    await closeBtn.trigger('click')
+    await flushPromises()
+
+    expect(updateStatus).toHaveBeenCalledWith('123', 'closed')
+    expect(ElMessage.success).toHaveBeenCalledWith('工单已关闭')
+    expect(fetchTicket).toHaveBeenCalledWith('123')
+  })
+
+  it('非 resolved 状态不显示关闭工单按钮', async () => {
+    useRoute.mockReturnValue({ params: { id: '123' } })
+    useTicketsStore.mockReturnValue({
+      currentTicket: { id: 123, title: 'Test', status: 'open', ticket_no: 'T-123', priority: 'P2', created_at: '2024-01-01', description: 'desc' },
+      replies: [],
+      fetchTicket: vi.fn(),
+      fetchReplies: vi.fn(),
+    })
+
+    const wrapper = mount(TicketDetailView)
+    await flushPromises()
+
+    const closeBtn = wrapper.findAll('.el-button').find((b) => b.text().includes('关闭工单'))
+    expect(closeBtn).toBeUndefined()
+  })
+})

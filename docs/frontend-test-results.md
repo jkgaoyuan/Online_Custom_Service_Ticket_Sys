@@ -1,9 +1,9 @@
 # 前端测试结果报告
 
-> **测试执行时间**: 2026-08-13 00:10:52  
-> **测试耗时**: 28.10s  
-> **执行环境**: Vitest v1.6.1 + @vue/test-utils + jsdom  
-> **分支**: `feat/missing-features` (worktree)
+> **测试执行时间**: 2026-08-25 00:55:14
+> **测试耗时**: 18.00s
+> **执行环境**: Vitest v4.1.11 + @vue/test-utils + jsdom
+> **分支**: `main`
 
 ---
 
@@ -11,8 +11,8 @@
 
 | 指标 | 结果 |
 |------|------|
-| **测试文件** | 20 / 20 通过 |
-| **测试用例** | 66 / 66 通过 |
+| **测试文件** | 23 / 23 通过 |
+| **测试用例** | 82 / 82 通过 |
 | **失败** | 0 |
 | **错误** | 0 |
 
@@ -28,7 +28,7 @@
 | 通用组件 | 4 | 10 | ✅ 通过 |
 | 报表组件 | 4 | 7 | ✅ 通过 |
 | 页面 - 登录 | 1 | 6 | ✅ 通过 |
-| 页面 - 客户 (创建/列表/详情) | 3 | 12 | ✅ 通过 |
+| 页面 - 客户 (创建/列表/详情) | 3 | 14 | ✅ 通过 |
 | 页面 - 客服 (列表/详情) | 2 | 9 | ✅ 通过 |
 | 页面 - 管理员 (用户/报表) | 2 | 3 | ✅ 通过 |
 
@@ -141,16 +141,16 @@
 |---|------|--------|-------------|
 | 1 | `tests/pages/customer/CreateTicketView.test.js` | 5 | TC-FE-030 ~ TC-FE-034 |
 | 2 | `tests/pages/customer/MyTicketsView.test.js` | 4 | TC-FE-035 ~ TC-FE-038 |
-| 3 | `tests/pages/customer/TicketDetailView.test.js` | 3 | TC-FE-039, TC-FE-043, TC-FE-045 |
+| 3 | `tests/pages/customer/TicketDetailView.test.js` | 5 | TC-FE-039, TC-FE-043, TC-FE-045, TC-FE-056 |
 
 **关键测试点**:
 - `CreateTicketView`: 正常提交并跳转、标题超 200 字符被拦截、未选分类被拦截、进入页面加载分类、提交中 loading
 - `MyTicketsView`: 正常渲染列表、空数据表格为空、分页切换触发重新加载、点击查看跳转详情
-- `TicketDetailView`: 加载工单详情和回复、提交满意度评价、XSS 输入被转义不执行脚本
+- `TicketDetailView`: 加载工单详情和回复、提交满意度评价、XSS 输入被转义不执行脚本、**resolved 状态显示关闭工单按钮并调用 updateStatus('closed')**、**非 resolved 状态不显示关闭按钮**
 
 **技术说明**:
 - TC-FE-031/TC-FE-032（表单校验）: 组件 `submit()` 未捕获 `validate()` rejection，测试直接通过 `wrapper.vm.$refs.formRef.validate()` 验证校验规则，同时断言 `createTicket` 未被调用
-- TC-FE-040 ~ TC-FE-042（状态更新/转交/协助）及 TC-FE-044（关闭后回复框隐藏）**未测试**，因为当前 `TicketDetailView.vue` 不包含这些 UI 元素
+- TC-FE-040 ~ TC-FE-042（状态更新/转交/协助）**未测试**，因为当前 `TicketDetailView.vue` 不包含这些 UI 元素
 
 ---
 
@@ -163,7 +163,8 @@
 
 **关键测试点**:
 - `AgentTicketsView`: 加载待处理工单列表、筛选状态切换
-- `AgentTicketDetailView`: 加载工单详情、状态更新、回复提交、转交/协助弹窗开关、自动分派建议展示、建议分配列表交互
+- `AgentTicketDetailView`: 加载工单详情、状态更新（标记已解决/等待客户）、回复提交、转交/协助弹窗开关、自动分派建议展示、建议分配列表交互
+- **关闭工单按钮已从客服视角移除，测试未断言该按钮存在**
 
 **技术说明**:
 - 转交/协助弹窗测试聚焦为"点击按钮 → 弹窗出现"的可靠断言，避免过度依赖 `el-select` 赋值和 teleport DOM 定位导致的脆弱测试
@@ -190,10 +191,10 @@
 ```json
 {
   "devDependencies": {
-    "vitest": "^1.6.1",
-    "@vue/test-utils": "^2.4.6",
-    "jsdom": "^24.1.3",
-    "@pinia/testing": "^0.1.6"
+    "vitest": "^4.1.11",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^30.0.1",
+    "@pinia/testing": "^0.1.7"
   }
 }
 ```
@@ -319,17 +320,17 @@ psql <production-url> -c "SELECT count(*) FROM users;"
 | TC-FE-040 | 客服更新工单状态 | `TicketDetailView.vue` 无状态更新 UI |
 | TC-FE-041 | 客服转交工单弹窗 | `TicketDetailView.vue` 无转交功能 UI |
 | TC-FE-042 | 客服请求协助弹窗 | `TicketDetailView.vue` 无协助功能 UI |
-| TC-FE-044 | 关闭工单后回复框隐藏 | `TicketDetailView.vue` 未实现该逻辑 |
 
 ---
 
 ## 结论
 
-前端测试套件 **20 个测试文件、66 条用例全部通过**，覆盖:
+前端测试套件 **23 个测试文件、82 条用例全部通过**，覆盖:
 - ✅ API Client 拦截器与错误处理
 - ✅ Pinia Store 状态管理
 - ✅ Vue Router 导航守卫与权限控制
 - ✅ 8 个通用/报表组件的渲染与交互
 - ✅ 9 个页面视图的完整用户流程
+- ✅ **客户关闭工单按钮的显隐与交互逻辑**
 
 测试基础设施已就位，后续新增功能可按既有模式扩展测试。
