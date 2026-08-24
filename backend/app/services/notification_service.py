@@ -1,6 +1,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sse import send_event
 from app.models.notification import Notification
 
 
@@ -20,7 +21,17 @@ async def create_notification(
         data=data or {},
     )
     db.add(notif)
-    # 不自行 flush，由调用方统一 commit
+    await db.flush()
+    await send_event(
+        user_id,
+        "new_notification",
+        {
+            "id": notif.id,
+            "type": type,
+            "title": title,
+            "message": message,
+        },
+    )
     return notif
 
 
