@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
 from app.exceptions import NotFoundException
 from app.models.category import Category
+from app.models.sla_record import SLARecord
+from app.models.ticket import Ticket
 from app.models.user import User
 from app.routers.tickets import check_ticket_access
-from app.schemas.sla import SLAResponse
+from app.schemas.sla import SLAResponse, SLAOverdueTicketResponse
 from app.services.sla_service import get_sla_record_by_ticket_id
 from app.services.ticket_service import get_ticket_by_id
 
@@ -50,15 +53,15 @@ async def list_sla_rules(
     ]
 
 
-@router.get("/admin/sla/overdue", response_model=list[SLAResponse])
+@router.get("/admin/sla/overdue", response_model=list[SLAOverdueTicketResponse])
 async def list_overdue_sla(
     breach_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "supervisor")),
 ):
-    from app.models.sla_record import SLARecord
-
-    stmt = select(SLARecord).where(
+    stmt = select(SLARecord).options(
+        selectinload(SLARecord.ticket).selectinload(Ticket.assignee)
+    ).where(
         (SLARecord.first_resp_breached.is_(True)) | (SLARecord.resolution_breached.is_(True))
     )
     if breach_type == "first_resp":
@@ -67,4 +70,26 @@ async def list_overdue_sla(
         stmt = stmt.where(SLARecord.resolution_breached.is_(True))
 
     result = await db.execute(stmt.order_by(SLARecord.id.desc()))
-    return result.scalars().all()
+    records = result.scalars().all()
+
+    overdue_list: list[dict] = []
+    for record in records:
+        ticket = record.ticket
+        assignee_name = ticket.assignee.username if ticket.assignee else "-"
+        if record.first_resp_breached:
+            overdue_list.append({
+                "ticket_no": ticket.ticket_no,
+                "title": ticket.title,
+                "assignee_name": assignee_name,
+                "due_time": record.first_resp_due,
+                "breach_type": "first_response",
+            })
+        if record.resolution_breached:
+            overdue_list.append({
+                "ticket_no": ticket.ticket_no,
+                "title": ticket.title,
+                "assignee_name": assignee_name,
+                "due_time": record.resolution_due,
+                "breach_type": "resolution",
+            })
+    return overdue_list

@@ -26,3 +26,13 @@ class SLASummary(BaseModel):
     resolution_breached: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SLAOverdueTicketResponse(BaseModel):
+    ticket_no: str
+    title: str
+    assignee_name: str
+    due_time: datetime
+    breach_type: str
+
+    model_config = ConfigDict(from_attributes=True)

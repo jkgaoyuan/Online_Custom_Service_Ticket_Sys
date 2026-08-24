@@ -263,9 +263,10 @@ async def test_api_get_ticket_sla_forbidden(client, customer_auth_headers, db):
 # API-SLA-303: admin GET /api/v1/admin/sla/overdue returns breached SLAs
 async def test_api_admin_overdue_list(client, admin_auth_headers, db):
     customer = await _create_user(db, "overdue_customer", "customer")
+    agent = await _create_user(db, "overdue_agent", "agent")
     category = await _create_category(db)
-    ticket1 = await _create_ticket(db, "Overdue 1", "Desc", category.id, customer.id)
-    ticket2 = await _create_ticket(db, "Overdue 2", "Desc", category.id, customer.id)
+    ticket1 = await _create_ticket(db, "Overdue 1", "Desc", category.id, customer.id, assignee_id=agent.id)
+    ticket2 = await _create_ticket(db, "Overdue 2", "Desc", category.id, customer.id, assignee_id=agent.id)
     ticket3 = await _create_ticket(db, "Normal 3", "Desc", category.id, customer.id)
 
     # Manually mark SLAs as breached
@@ -283,22 +284,31 @@ async def test_api_admin_overdue_list(client, admin_auth_headers, db):
     assert r.status_code == 200
     data = r.json()
     assert len(data) >= 2
-    ticket_ids = [item["ticket_id"] for item in data]
-    assert ticket1.id in ticket_ids
-    assert ticket2.id in ticket_ids
-    assert ticket3.id not in ticket_ids
+    ticket_nos = [item["ticket_no"] for item in data]
+    assert ticket1.ticket_no in ticket_nos
+    assert ticket2.ticket_no in ticket_nos
+    assert ticket3.ticket_no not in ticket_nos
+
+    # Check new response fields
+    for item in data:
+        assert "ticket_no" in item
+        assert "title" in item
+        assert "assignee_name" in item
+        assert "due_time" in item
+        assert "breach_type" in item
+        assert item["breach_type"] in ("first_response", "resolution")
 
     # Filter by first_resp
     r = await client.get("/api/v1/admin/sla/overdue?breach_type=first_resp", headers=admin_auth_headers)
     assert r.status_code == 200
     data = r.json()
-    assert all(item["first_resp_breached"] for item in data)
+    assert all(item["breach_type"] == "first_response" for item in data)
 
     # Filter by resolution
     r = await client.get("/api/v1/admin/sla/overdue?breach_type=resolution", headers=admin_auth_headers)
     assert r.status_code == 200
     data = r.json()
-    assert all(item["resolution_breached"] for item in data)
+    assert all(item["breach_type"] == "resolution" for item in data)
 
 
 # API-SLA-304: GET /api/v1/tickets/{id} includes sla field
