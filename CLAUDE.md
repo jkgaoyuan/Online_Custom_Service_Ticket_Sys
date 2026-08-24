@@ -11,7 +11,7 @@
 
   - **技术栈**: 前端 Vue3 + Vite，后端 FastAPI + SQLAlchemy（请按实际项目修改）
   - **主分支**: `main`
-  - **CLAUDE.md 最后更新**: 2026-08-23
+  - **CLAUDE.md 最后更新**: 2026-08-25
   - **Git 管理**: `.claude/CLAUDE.md`、`decisions.md`、`sessions/` **必须**纳入版本控制；`.claude/settings.json`（如存在）可视情况加入 `.gitignore`
 
   ---
@@ -150,9 +150,9 @@
   ## 📋 最近进度
   <!-- 由归档流程自动维护，保留最近 3 条。首次使用前留空即可。 -->
 
+  - **2026-08-25 01:42** — 按项目实际架构同步更新三份顶层文档（ARCHITECTURE.md / README.md / PROJECT_DOCS.md），补充 Collaboration/Dispatch/Notification/SSE 模块、5 个新实体与表结构、15+ 接口端点、角色权限矩阵；补充前端 Admin 页面测试（AdminTicketDetailView / AdminTicketsView / AdminLayout / DashboardView 共 27 用例），安装 vitest coverage 插件，语句覆盖率 56.66%；2 个 commit 已提交。
   - **2026-08-23 20:44** — 修复 admin 导出功能 `InterfaceError` 与超时：`export_tasks` / `sla_tasks` 改用局部 engine 避免 asyncpg 连接跨事件循环复用，`main.py` 导入 `celery_app` 使 `shared_task` 正确绑定 Redis broker，`docker-compose` 为 `api` / `worker` 挂载共享 `exports` volume；24 测试通过；1 个 commit 已提交。
   - **2026-08-23 20:32** — 修复客服 resolved 工单空白页（前端错误处理 + 后端权限边界），补充 requester 字段加载、回复作者展示、端到端测试；25/25 测试通过；1 个 commit 已提交。
-  - **2026-08-23 13:40** — 修复前后端接口不一致（categories / sla / agentSkills 路径与字段对齐），补充 admin agent-skills 返回字段与 /admin/sla/rules 路由；修复测试环境 PostgreSQL DDL 竞态（`pg_type_typname_nsp_index` 冲突 + `Event loop is closed`），`conftest.py` 采用全局标志 + TRUNCATE + `engine.dispose()` 方案；后端 363 测试全部通过；10 个文件修改未提交。
 
   ---
 
