@@ -121,3 +121,30 @@ async def test_customer_reply_waiting_ticket_becomes_in_progress(client, custome
     ticket_r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=customer_auth_headers)
     ticket_data = ticket_r.json()
     assert ticket_data["status"] == "in_progress"
+
+
+async def test_customer_reply_resolved_ticket_becomes_in_progress(client, customer_auth_headers, db):
+    """客户回复 resolved 状态的工单，状态自动恢复为 in_progress"""
+    result = await db.execute(select(User).where(User.username == "customer_test"))
+    customer = result.scalar_one()
+    category = await _create_category(db)
+    agent = User(
+        username="resolved_agent",
+        email="resolved_agent@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role="agent",
+        is_active=True,
+    )
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
+    ticket = await _create_ticket(db, "Resolved ticket", "Desc", category.id, customer.id, status="resolved", assignee_id=agent.id)
+    body = {"content": "问题仍未解决，请继续处理", "is_internal": False}
+    r = await client.post(f"/api/v1/tickets/{ticket.id}/replies", headers=customer_auth_headers, json=body)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["content"] == "问题仍未解决，请继续处理"
+    # 验证状态变为 in_progress
+    ticket_r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=customer_auth_headers)
+    ticket_data = ticket_r.json()
+    assert ticket_data["status"] == "in_progress"

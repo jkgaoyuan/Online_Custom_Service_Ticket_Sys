@@ -209,8 +209,8 @@ async def reply_ticket(
     if is_agent_reply and ticket.status == "open":
         ticket.status = "in_progress"
         ticket.assignee_id = current_user.id
-    elif not is_agent_reply and ticket.status == "waiting":
-        # 客户回复 waiting 工单，自动恢复为处理中
+    elif not is_agent_reply and ticket.status in ("waiting", "resolved"):
+        # 客户回复 waiting/resolved 工单，自动恢复为处理中
         ticket.status = "in_progress"
     reply = await create_reply(db, ticket, data, current_user.id, is_agent_reply=is_agent_reply)
     # 状态变更后需要显式提交
