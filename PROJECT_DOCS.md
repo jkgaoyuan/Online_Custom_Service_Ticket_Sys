@@ -106,35 +106,66 @@ ticket-system/
 │   │   │   ├── __init__.py
 │   │   │   ├── user.py
 │   │   │   ├── ticket.py
-│   │   │   ├── sla.py
-│   │   │   └── ...
+│   │   │   ├── ticket_reply.py
+│   │   │   ├── category.py
+│   │   │   ├── agent_skill.py
+│   │   │   ├── sla_record.py
+│   │   │   ├── collaboration.py
+│   │   │   ├── notification.py
+│   │   │   ├── dispatch_log.py
+│   │   │   └── email_ingestion.py
 │   │   ├── schemas/             # Pydantic 校验模型
 │   │   │   ├── __init__.py
 │   │   │   ├── user.py
 │   │   │   ├── ticket.py
+│   │   │   ├── ticket_reply.py
+│   │   │   ├── category.py
+│   │   │   ├── agent_skill.py
+│   │   │   ├── sla.py
+│   │   │   ├── collaboration.py
+│   │   │   ├── notification.py
+│   │   │   ├── dispatch.py
+│   │   │   ├── report.py
 │   │   │   └── ...
 │   │   ├── routers/             # API 路由
 │   │   │   ├── __init__.py
 │   │   │   ├── auth.py
 │   │   │   ├── tickets.py
-│   │   │   ├── assignments.py
+│   │   │   ├── categories.py
+│   │   │   ├── collaborations.py
+│   │   │   ├── dispatch.py
 │   │   │   ├── sla.py
-│   │   │   ├── stats.py
+│   │   │   ├── notifications.py
+│   │   │   ├── reports.py
+│   │   │   ├── agent_skills.py
+│   │   │   ├── sse.py
 │   │   │   ├── webhooks.py
 │   │   │   └── admin.py
 │   │   ├── services/            # 业务逻辑层
 │   │   │   ├── __init__.py
 │   │   │   ├── auth_service.py
 │   │   │   ├── ticket_service.py
-│   │   │   ├── assignment_service.py
-│   │   │   └── ...
+│   │   │   ├── reply_service.py
+│   │   │   ├── category_service.py
+│   │   │   ├── agent_skill_service.py
+│   │   │   ├── collaboration_service.py
+│   │   │   ├── dispatch_service.py
+│   │   │   ├── sla_service.py
+│   │   │   ├── notification_service.py
+│   │   │   ├── report_service.py
+│   │   │   ├── email_service.py
+│   │   │   ├── mailer.py
+│   │   │   └── user_service.py
 │   │   ├── tasks/               # Celery 异步任务
 │   │   │   ├── __init__.py
 │   │   │   ├── sla_tasks.py
 │   │   │   ├── notify_tasks.py
-│   │   │   └── export_tasks.py
+│   │   │   ├── export_tasks.py
+│   │   │   └── email_tasks.py
 │   │   ├── dependencies.py      # FastAPI Dependencies（鉴权等）
-│   │   └── exceptions.py        # 自定义异常
+│   │   ├── exceptions.py        # 自定义异常
+│   │   └── core/                # 核心工具
+│   │       └── sse.py           # SSE 客户端管理
 │   ├── alembic/                 # 数据库迁移
 │   ├── tests/
 │   │   ├── conftest.py
@@ -151,10 +182,54 @@ ticket-system/
 │   │   ├── main.js
 │   │   ├── App.vue
 │   │   ├── router/
+│   │   │   └── index.js
 │   │   ├── stores/              # Pinia
+│   │   │   ├── index.js
+│   │   │   ├── auth.js
+│   │   │   ├── tickets.js
+│   │   │   ├── dispatch.js
+│   │   │   ├── notifications.js
+│   │   │   ├── categories.js
+│   │   │   ├── agentSkills.js
+│   │   │   ├── sla.js
+│   │   │   ├── reports.js
+│   │   │   └── users.js
 │   │   ├── views/               # 页面
+│   │   │   ├── LoginView.vue
+│   │   │   ├── customer/
+│   │   │   │   ├── DashboardView.vue
+│   │   │   │   ├── MyTicketsView.vue
+│   │   │   │   ├── CreateTicketView.vue
+│   │   │   │   └── TicketDetailView.vue
+│   │   │   ├── agent/
+│   │   │   │   ├── WorkbenchView.vue
+│   │   │   │   ├── AgentTicketsView.vue
+│   │   │   │   └── AgentTicketDetailView.vue
+│   │   │   └── admin/
+│   │   │       ├── UsersView.vue
+│   │   │       ├── ReportsView.vue
+│   │   │       ├── CategoriesView.vue
+│   │   │       ├── AgentSkillsView.vue
+│   │   │       ├── SLARulesView.vue
+│   │   │       ├── AdminTicketsView.vue
+│   │   │       └── AdminTicketDetailView.vue
 │   │   ├── components/          # 公共组件
+│   │   │   ├── StatusBadge.vue
+│   │   │   ├── PriorityTag.vue
+│   │   │   ├── ReplyBox.vue
+│   │   │   ├── AssignSuggestionList.vue
+│   │   │   └── NotificationBell.vue
 │   │   ├── api/                 # Axios 封装
+│   │   │   ├── index.js
+│   │   │   ├── auth.js
+│   │   │   ├── tickets.js
+│   │   │   ├── categories.js
+│   │   │   ├── sla.js
+│   │   │   ├── agentSkills.js
+│   │   │   ├── dispatch.js
+│   │   │   ├── reports.js
+│   │   │   ├── admin.js
+│   │   │   └── notifications.js
 │   │   └── utils/
 │   ├── public/
 │   ├── index.html
@@ -200,6 +275,9 @@ uvicorn app.main:app --reload --port 8000
 # 6. 启动 Celery Worker（另开终端）
 celery -A celery_worker worker --loglevel=info
 
+# 6.5 启动 Celery Beat 调度器（另开终端，用于定时 SLA 扫描）
+celery -A celery_worker beat --loglevel=info
+
 # 7. 前端环境（另开终端）
 cd ../frontend
 npm install
@@ -216,6 +294,7 @@ cd frontend && npm run test
 |------|------|------|------|
 | api | `ticket-system/backend` | 8000 | FastAPI 应用 |
 | worker | `ticket-system/backend` | — | Celery Worker |
+| beat | `ticket-system/backend` | — | Celery Beat 定时任务调度器 |
 | web | `ticket-system/frontend` | 80 | Nginx + 静态文件 |
 | postgres | `postgres:15-alpine` | 5432 | 主数据库 |
 | redis | `redis:7-alpine` | 6379 | Broker/Cache |

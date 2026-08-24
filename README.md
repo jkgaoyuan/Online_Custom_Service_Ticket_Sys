@@ -29,6 +29,9 @@ uvicorn app.main:app --reload --port 8000
 # 3. Celery Worker（另开终端）
 celery -A celery_worker worker --loglevel=info
 
+# 3.5 Celery Beat 调度器（另开终端，用于定时 SLA 扫描等）
+celery -A celery_worker beat --loglevel=info
+
 # 4. 前端（另开终端，Node.js 20+）
 cd frontend
 npm install
@@ -139,6 +142,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `ALGORITHM` | JWT 签名算法 | `HS256` | `HS256` | 通常保持默认 |
 | `FRONTEND_URL` | CORS 允许来源 | `http://localhost:80` | `http://localhost:5173` | 按需调整 |
 | `EXPORT_DIR` | 报表导出目录 | `./exports` | `./exports` | 按需调整 |
+| `CELERY_BROKER_URL` | Celery Broker (Redis) | `redis://redis:6379/1` | `redis://localhost:6379/1` | Docker 环境自动配置 |
+| `CELERY_RESULT_BACKEND` | Celery 结果后端 (Redis) | `redis://redis:6379/2` | `redis://localhost:6379/2` | Docker 环境自动配置 |
 | `EMAIL_DEFAULT_CATEGORY_CODE` | 邮件默认分类标识 | `email` | `email` | 按需调整 |
 | `EMAIL_ALLOWED_DOMAINS` | 允许接收邮件的域名 | 空 | 空 | 按需调整 |
 | `SMTP_*` | 邮件发送（`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_TLS`, `EMAIL_FROM`） | 空 | 空 | 启用 SMTP 时配置 |
@@ -206,6 +211,8 @@ EMAIL_API_URL=
 - `TASKS.md` — 开发任务清单（按里程碑分组）
 - `ARCHITECTURE.md` — 系统架构设计（数据模型、接口契约、状态机）
 - `RISKS.md` — 风险清单与应对建议
+- `testing-guidelines.md` — 测试设计规范（用例设计方法、优先级、命名体系）
+- `docs/deployment.md` — 生产环境部署指南
 
 ## 开发规范
 
