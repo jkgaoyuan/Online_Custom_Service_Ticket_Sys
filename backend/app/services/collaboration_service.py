@@ -29,6 +29,9 @@ async def transfer_ticket(
     if ticket is None:
         raise NotFoundException("工单不存在")
 
+    if ticket.status in ("closed", "resolved"):
+        raise ValidationException("已关闭或已解决的工单不能转交")
+
     # Only current assignee can transfer (supervisor/admin bypass)
     from_user_result = await db.execute(select(User).where(User.id == from_user_id))
     from_user = from_user_result.scalar_one()
@@ -106,6 +109,9 @@ async def request_assistance(
     ticket = ticket_result.scalar_one_or_none()
     if ticket is None:
         raise NotFoundException("工单不存在")
+
+    if ticket.status in ("closed", "resolved"):
+        raise ValidationException("已关闭或已解决的工单不能请求协助")
 
     # Only current assignee can request assistance (supervisor/admin bypass)
     from_user_result = await db.execute(select(User).where(User.id == from_user_id))

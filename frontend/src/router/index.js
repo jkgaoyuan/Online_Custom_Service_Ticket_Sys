@@ -100,6 +100,16 @@ const routes = [
         name: 'AdminSLARules',
         component: () => import('@/views/admin/SLARulesView.vue'),
       },
+      {
+        path: 'tickets',
+        name: 'AdminTickets',
+        component: () => import('@/views/admin/AdminTicketsView.vue'),
+      },
+      {
+        path: 'tickets/:id',
+        name: 'AdminTicketDetail',
+        component: () => import('@/views/admin/AdminTicketDetailView.vue'),
+      },
     ],
   },
 ]

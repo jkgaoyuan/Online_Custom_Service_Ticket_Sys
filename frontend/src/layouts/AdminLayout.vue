@@ -2,6 +2,10 @@
   <el-container class="layout-container">
     <el-aside width="200px">
       <el-menu :default-active="$route.path" router>
+        <el-menu-item index="/admin/tickets">
+          <el-icon><Tickets /></el-icon>
+          <span>工单管理</span>
+        </el-menu-item>
         <el-menu-item index="/admin/users">
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
@@ -43,7 +47,7 @@
 </template>
 
 <script setup>
-import { Grid, Star, Timer, TrendCharts, UserFilled } from '@element-plus/icons-vue'
+import { Grid, Star, Tickets, Timer, TrendCharts, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
 import NotificationBell from '@/components/NotificationBell.vue'
 
