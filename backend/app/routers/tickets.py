@@ -209,6 +209,9 @@ async def reply_ticket(
     if is_agent_reply and ticket.status == "open":
         ticket.status = "in_progress"
         ticket.assignee_id = current_user.id
+    elif is_agent_reply and ticket.status == "in_progress" and ticket.assignee_id is None:
+        # 认领待认领的 in_progress 工单
+        ticket.assignee_id = current_user.id
     elif not is_agent_reply and ticket.status in ("waiting", "resolved"):
         # 客户回复 waiting/resolved 工单，自动恢复为处理中
         ticket.status = "in_progress"
@@ -247,9 +250,23 @@ async def update_ticket_status(
     if not ticket:
         raise NotFoundException("工单不存在")
     await check_ticket_access(db, ticket, current_user)
-    if current_user.role not in ("agent", "supervisor", "admin"):
-        raise PermissionDeniedException("无权修改工单状态")
+    if req.status == "closed":
+        # 只有客户能关闭工单，且只能关闭自己的工单
+        if current_user.role != "customer":
+            raise PermissionDeniedException("只有客户可以关闭工单")
+        if ticket.requester_id != current_user.id:
+            raise PermissionDeniedException("无权关闭该工单")
+    else:
+        # 其他状态流转仍需客服/主管/管理员
+        if current_user.role not in ("agent", "supervisor", "admin"):
+            raise PermissionDeniedException("无权修改工单状态")
+    old_status = ticket.status
     ticket = await transition_ticket_status(db, ticket, req.status)
+    # open → in_progress 接单时自动设置负责人
+    if old_status == "open" and req.status == "in_progress" and ticket.assignee_id is None:
+        ticket.assignee_id = current_user.id
+        await db.commit()
+        await db.refresh(ticket)
     if ticket.assignee_id is not None:
         await send_event(ticket.assignee_id, "stats_update", {})
     return ticket

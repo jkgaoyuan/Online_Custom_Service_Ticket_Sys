@@ -148,3 +148,28 @@ async def test_customer_reply_resolved_ticket_becomes_in_progress(client, custom
     ticket_r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=customer_auth_headers)
     ticket_data = ticket_r.json()
     assert ticket_data["status"] == "in_progress"
+
+
+async def test_agent_reply_unassigned_in_progress_claims_ticket(client, agent_auth_headers, db):
+    """客服回复待认领的 in_progress 工单，自动认领"""
+    customer = User(
+        username="claim_customer",
+        email="claim_customer@example.com",
+        password_hash=get_password_hash("Pass1234"),
+        role="customer",
+        is_active=True,
+    )
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+    category = await _create_category(db)
+    # 创建一个 in_progress 但无负责人的工单
+    ticket = await _create_ticket(db, "Unassigned in_progress", "Desc", category.id, customer.id, status="in_progress", assignee_id=None)
+    body = {"content": "我来处理这个问题", "is_internal": False}
+    r = await client.post(f"/api/v1/tickets/{ticket.id}/replies", headers=agent_auth_headers, json=body)
+    assert r.status_code == 201
+    # 验证工单被认领
+    ticket_r = await client.get(f"/api/v1/tickets/{ticket.id}", headers=agent_auth_headers)
+    ticket_data = ticket_r.json()
+    assert ticket_data["status"] == "in_progress"
+    assert ticket_data["assignee_id"] is not None

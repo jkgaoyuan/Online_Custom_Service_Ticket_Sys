@@ -267,3 +267,38 @@ async def test_create_ticket_assignee_overrides_auto_dispatch(client, customer_a
     assert r.status_code == 201
     data = r.json()
     assert data["assignee_id"] == agent.id
+
+
+# API-TICKET-023: Customer can close own resolved ticket
+async def test_customer_close_own_resolved_ticket(client, customer_auth_headers, db):
+    result = await db.execute(select(User).where(User.username == "customer_test"))
+    customer = result.scalar_one()
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "To close", "Desc", category.id, customer.id, status="resolved", assignee_id=None)
+    body = {"status": "closed"}
+    r = await client.post(f"/api/v1/tickets/{ticket.id}/status", headers=customer_auth_headers, json=body)
+    assert r.status_code == 200
+    assert r.json()["status"] == "closed"
+
+
+# API-TICKET-024: Customer cannot close other's ticket
+async def test_customer_cannot_close_other_ticket(client, customer_auth_headers, db):
+    other_customer = await _create_user(db, "other_close_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "Other ticket", "Desc", category.id, other_customer.id, status="resolved")
+    body = {"status": "closed"}
+    r = await client.post(f"/api/v1/tickets/{ticket.id}/status", headers=customer_auth_headers, json=body)
+    assert r.status_code == 403
+    detail = r.json()["detail"]
+    assert "无权" in detail
+
+
+# API-TICKET-025: Agent cannot close ticket
+async def test_agent_cannot_close_ticket(client, agent_auth_headers, db):
+    customer = await _create_user(db, "close_customer", "customer")
+    category = await _create_category(db)
+    ticket = await _create_ticket(db, "Agent close", "Desc", category.id, customer.id, status="resolved", assignee_id=None)
+    body = {"status": "closed"}
+    r = await client.post(f"/api/v1/tickets/{ticket.id}/status", headers=agent_auth_headers, json=body)
+    assert r.status_code == 403
+    assert "只有客户可以关闭工单" in r.json()["detail"]

@@ -138,6 +138,10 @@ async def transition_ticket_status(db: AsyncSession, ticket: Ticket, target_stat
     if not can_transition(ticket.status, target_status):
         raise DuplicateException(f"无法从 {ticket.status} 流转到 {target_status}")
 
+    # 禁止将无负责人的工单流转到需要负责人的终态
+    if target_status in ("resolved", "waiting") and ticket.assignee_id is None:
+        raise TicketSystemException("该工单未分配负责人，请先分派或接单")
+
     old_status = ticket.status
     ticket.status = target_status
 

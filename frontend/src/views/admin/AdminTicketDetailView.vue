@@ -6,6 +6,7 @@
       <el-descriptions-item label="状态"><StatusBadge :status="store.currentTicket.status" /></el-descriptions-item>
       <el-descriptions-item label="优先级"><PriorityTag :priority="store.currentTicket.priority" /></el-descriptions-item>
       <el-descriptions-item label="客户">{{ store.currentTicket.requester?.username || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="负责人">{{ store.currentTicket.assignee?.username || '未分配' }}</el-descriptions-item>
     </el-descriptions>
     <el-divider />
     <h3>描述</h3>
@@ -38,8 +39,8 @@
     <el-button-group>
       <el-button :disabled="!canResolve" @click="changeStatus('resolved')">标记已解决</el-button>
       <el-button :disabled="!canWait" @click="changeStatus('waiting')">等待客户</el-button>
-      <el-button v-if="canCollaborate" :disabled="!canTransfer" @click="openTransferDialog">转交工单</el-button>
-      <el-button v-if="canCollaborate" :disabled="!canAssist" @click="openAssistDialog">请求协助</el-button>
+      <el-button :disabled="!canTransfer" @click="openTransferDialog">转交工单</el-button>
+      <el-button :disabled="!canAssist" @click="openAssistDialog">请求协助</el-button>
     </el-button-group>
 
     <!-- 转交对话框 -->
@@ -106,24 +107,21 @@
 
 <script setup>
 import { onMounted, computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTicketsStore } from '@/stores'
-import { useAuthStore } from '@/stores'
-import { useDispatchStore } from '@/stores/dispatch'
+import { useDispatchStore } from '@/stores'
+import { ticketApi } from '@/api/tickets'
 import StatusBadge from '@/components/StatusBadge.vue'
 import PriorityTag from '@/components/PriorityTag.vue'
 import ReplyBox from '@/components/ReplyBox.vue'
 import AssignSuggestionList from '@/components/AssignSuggestionList.vue'
-import { ticketApi } from '@/api/tickets'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
+const router = useRouter()
 const store = useTicketsStore()
-const authStore = useAuthStore()
 const dispatchStore = useDispatchStore()
 const suggestions = computed(() => dispatchStore.suggestions)
-
-const canCollaborate = computed(() => ['agent', 'supervisor', 'admin'].includes(authStore.userRole))
 
 const canResolve = computed(() => store.currentTicket?.status === 'in_progress')
 const canWait = computed(() => store.currentTicket?.status === 'in_progress')

@@ -35,6 +35,12 @@
       />
     </div>
 
+    <!-- 关闭工单 -->
+    <el-divider v-if="ticketsStore.currentTicket.status === 'resolved'" />
+    <div v-if="ticketsStore.currentTicket.status === 'resolved'">
+      <el-button type="danger" @click="closeTicket">关闭工单</el-button>
+    </div>
+
     <!-- 评价区域 -->
     <el-divider />
     <div v-if="ticketsStore.currentTicket.status === 'closed'" class="satisfaction-section">
@@ -142,6 +148,16 @@ const handleReply = async (payload) => {
     ElMessage.success('回复成功')
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '回复失败')
+  }
+}
+
+const closeTicket = async () => {
+  try {
+    await ticketsStore.updateStatus(route.params.id, 'closed')
+    await ticketsStore.fetchTicket(route.params.id)
+    ElMessage.success('工单已关闭')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '关闭工单失败')
   }
 }
 </script>
